@@ -19,4 +19,4 @@ describe('AppController', () => {
       expect(appController.getHealth()).toBe('Hello World!');
     });
   });
-})
+});
