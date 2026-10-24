@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from './users.schema.js';
 
+
 export const sessionRevocationReasonEnum = pgEnum(
   'session_revocation_reason',
   [
@@ -28,21 +29,15 @@ export const sessions = pgTable(
   'sessions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
 
     deviceName: varchar('device_name', { length: 255 }),
-
     userAgent: varchar('user_agent', { length: 1000 }),
-
     ipAddress: inet('ip_address'),
-
     country: varchar('country', { length: 100 }),
-
     city: varchar('city', { length: 100 }),
-
     lastActivityAt: timestamp('last_activity_at', {
       withTimezone: true,
     }),
