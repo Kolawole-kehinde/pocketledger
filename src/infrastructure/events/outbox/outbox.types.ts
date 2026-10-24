@@ -1,6 +1,6 @@
 import type { NodePgTransaction } from 'drizzle-orm/node-postgres';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
-import type * as schema from '../../database/schema/index.js';
+import type * as schema from'../../../database/schema/index.js';
 
 export type OutboxTransaction = NodePgTransaction<
   typeof schema,

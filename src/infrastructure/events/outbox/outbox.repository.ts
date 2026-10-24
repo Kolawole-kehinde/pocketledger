@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { OutboxTransaction, OutboxEventInput } from './outbox.types.js';
-import { outboxEvents } from '../../database/schema/outbox-events.schema.js';
+import { outboxEvents } from '../../../database/schema/outbox-events.schema.js';
 
 @Injectable()
 export class OutboxRepository {
