@@ -4,10 +4,8 @@ import { outboxEvents } from '../../../database/schema/outbox-events.schema.js';
 
 @Injectable()
 export class OutboxRepository {
-  async enqueue(
-    tx: OutboxTransaction,
-    event: OutboxEventInput,
-  ) {
+   async enqueue( tx: OutboxTransaction, event: OutboxEventInput,) {
+
     const [createdEvent] = await tx
       .insert(outboxEvents)
       .values({
@@ -23,10 +21,7 @@ export class OutboxRepository {
     return createdEvent;
   }
 
-  async enqueueMany(
-    tx: OutboxTransaction,
-    events: OutboxEventInput[],
-  ) {
+  async enqueueMany(tx: OutboxTransaction, events: OutboxEventInput[],) {
     if (events.length === 0) {
       return [];
     }
