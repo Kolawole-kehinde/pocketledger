@@ -5,6 +5,7 @@ import { envSchema } from '../config/env.schema.js';
 import { DatabaseModule } from '../database/database.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { KafkaModule } from '../infrastructure/kafka/kafka.module.js';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { AppService } from './app.service.js';
       validate: (config) => envSchema.parse(config),
     }),
     DatabaseModule,
+    KafkaModule
   ],
   controllers: [AppController],
   providers: [AppService],

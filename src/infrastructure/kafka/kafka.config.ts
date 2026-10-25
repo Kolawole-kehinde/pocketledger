@@ -12,7 +12,7 @@ export const createKafkaClient = (configService: ConfigService): Kafka => {
        brokers,
        retry: {
          initialRetryTime: 300,
-         retries: 8
+         retries: Number.MAX_SAFE_INTEGER
        }
     })
 };
