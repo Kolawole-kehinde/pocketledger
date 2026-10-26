@@ -94,4 +94,42 @@ export class OutboxPublisher {
         )
        )
      }
+
+     
+private async markFailed(
+  eventId: string,
+  attempts: number,
+  error: unknown,
+): Promise<void> {
+  const maxAttempts = 10;
+  const shouldDeadLetter = attempts >= maxAttempts;
+
+  const backoffMs = Math.min(
+    1_000 * 2 ** Math.max(attempts - 1, 0),
+    5 * 60 * 1_000,
+  );
+
+  const message =
+    error instanceof Error ? error.message : 'Unknown Kafka publishing error';
+
+  await this.db
+    .update(outboxEvents)
+    .set({
+      status: shouldDeadLetter ? 'dead_lettered' : 'pending',
+      availableAt: new Date(Date.now() + backoffMs),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: message.slice(0, 1000),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.id, eventId),
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, this.workerId),
+      ),
+    );
+}
+
 }
