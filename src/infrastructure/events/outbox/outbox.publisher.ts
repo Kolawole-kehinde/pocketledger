@@ -6,8 +6,9 @@ import { DATABASE } from '../../../database/database.provider.js';
 
 import type { Producer } from 'kafkajs';
 import { KAFKA_PRODUCER } from '../../kafka/kafka.constants.js';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { ClaimedOutboxEvent } from './outbox.types.js';
+import { outboxEvents } from '../../../database/schema/outbox-events.schema.js';
 
 @Injectable()
 export class OutboxPublisher {
@@ -73,5 +74,24 @@ export class OutboxPublisher {
             }]
         })
 
+     }
+
+     private async markPublished(eventId: string){
+       await this.db.update(outboxEvents).set({
+           status: 'published',
+           publishedAt: new Date(),
+           processingAt: null,
+           lockedBy: null,
+           leaseExpiresAt: null,
+           lastError: null,
+           updatedAt: new Date()
+       }).where(
+        and(
+            eq(outboxEvents.id, eventId),
+            eq(outboxEvents.status, 'processing'),
+            eq(outboxEvents.lockedBy, this.workerId)
+
+        )
+       )
      }
 }
