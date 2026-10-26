@@ -26,4 +26,5 @@ export interface ClaimedOutboxEvent {
   payload: Record<string, unknown>;
   occurredAt: Date;
   correlationId: string | null;
+  attempts: number;
 }

@@ -3,7 +3,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Database } from '../../../database/database.types.js';
 import { DATABASE } from '../../../database/database.provider.js';
-
 import type { Producer } from 'kafkajs';
 import { KAFKA_PRODUCER } from '../../kafka/kafka.constants.js';
 import { and, eq, sql } from 'drizzle-orm';
@@ -76,31 +75,35 @@ export class OutboxPublisher {
 
      }
 
-     private async markPublished(eventId: string){
-       await this.db.update(outboxEvents).set({
-           status: 'published',
-           publishedAt: new Date(),
-           processingAt: null,
-           lockedBy: null,
-           leaseExpiresAt: null,
-           lastError: null,
-           updatedAt: new Date()
-       }).where(
-        and(
-            eq(outboxEvents.id, eventId),
-            eq(outboxEvents.status, 'processing'),
-            eq(outboxEvents.lockedBy, this.workerId)
+private async markPublished(eventId: string): Promise<boolean> {
+  const rows = await this.db
+    .update(outboxEvents)
+    .set({
+      status: 'published',
+      publishedAt: new Date(),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.id, eventId),
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, this.workerId),
+      ),
+    )
+    .returning({ id: outboxEvents.id });
 
-        )
-       )
-     }
-
+  return rows.length > 0;
+}
      
 private async markFailed(
   eventId: string,
   attempts: number,
   error: unknown,
-): Promise<void> {
+): Promise<boolean> {
   const maxAttempts = 10;
   const shouldDeadLetter = attempts >= maxAttempts;
 
@@ -110,9 +113,11 @@ private async markFailed(
   );
 
   const message =
-    error instanceof Error ? error.message : 'Unknown Kafka publishing error';
+    error instanceof Error
+      ? error.message
+      : 'Unknown Kafka publishing error';
 
-  await this.db
+  const rows = await this.db
     .update(outboxEvents)
     .set({
       status: shouldDeadLetter ? 'dead_lettered' : 'pending',
@@ -129,7 +134,9 @@ private async markFailed(
         eq(outboxEvents.status, 'processing'),
         eq(outboxEvents.lockedBy, this.workerId),
       ),
-    );
-}
+    )
+    .returning({ id: outboxEvents.id });
 
+  return rows.length > 0;
+}
 }
