@@ -27,4 +27,5 @@ export interface ClaimedOutboxEvent {
   occurredAt: Date;
   correlationId: string | null;
   attempts: number;
+   maxAttempts: number;
 }

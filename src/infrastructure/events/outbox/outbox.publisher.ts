@@ -78,6 +78,7 @@ private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
         ? null
         : String(event.correlation_id),
     attempts: Number(event.attempts),
+    maxAttempts: Number(event.max_attempts),
   };
 });
   });
@@ -132,9 +133,9 @@ private async markPublished(eventId: string): Promise<boolean> {
 private async markFailed(
   eventId: string,
   attempts: number,
+  maxAttempts: number,
   error: unknown,
 ): Promise<boolean> {
-  const maxAttempts = 10;
   const shouldDeadLetter = attempts >= maxAttempts;
 
   const backoffMs = Math.min(
@@ -168,7 +169,7 @@ private async markFailed(
     .returning({ id: outboxEvents.id });
 
   return rows.length > 0;
-}
+};
 
 private async deadLetterExhaustedEvents(): Promise<void>{
      await this.db.update(outboxEvents)
@@ -235,6 +236,7 @@ private async pollOnce(): Promise<void> {
         const updated = await this.markFailed(
           event.id,
           event.attempts,
+           event.maxAttempts,
           error,
         );
 
