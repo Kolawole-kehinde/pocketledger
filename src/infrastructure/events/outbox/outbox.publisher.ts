@@ -6,6 +6,7 @@ import { DATABASE } from '../../../database/database.provider.js';
 
 import type { Producer } from 'kafkajs';
 import { KAFKA_PRODUCER } from '../../kafka/kafka.constants.js';
+import { sql } from 'drizzle-orm';
 
 @Injectable()
 export class OutboxPublisher {
@@ -21,4 +22,34 @@ export class OutboxPublisher {
     this.workerId =
       `${this.configService.get<string>('HOSTNAME') ?? 'pocketledger'}-${process.pid}`;
   }
+     private async claimBatch(){
+        return this.db.transaction(async(tx) => {
+           const result = await tx.execute(sql`
+               WITH candidates AS (
+                SELECT id
+                FROM outbox_events
+                WHERE attempts < max_attempts
+                AND(
+                    (status = 'pending' AND available_at <= Now())
+                )
+                ORDER BY available_at ASC, created_at ASC
+                LIMIT ${this.batchSize}
+                FOR UPDATE SKIP LOCKED
+               )
+               UPDATE outbox_events AS event
+               SET
+               status = 'processing',
+               attempts = event.attempts + 1,
+               processing_at = Now(),
+               lockedby: ${this.workerId},
+               lease_expire_at = Now() + (leaseDurationMs=${this.leaseDurationMs} * INTERVAL '1 milliseconds'),
+               updated_at = Now()
+               FROM  candidates
+               WHERE event.id = candidates.id
+               RETURNING event.*;
+            `);
+
+            return result.rows;
+        })
+     }
 }
