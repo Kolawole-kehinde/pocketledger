@@ -15,3 +15,15 @@ export interface OutboxEventInput {
   correlationId?: string;
   schemaVersion?: number;
 }
+
+
+export interface ClaimedOutboxEvent {
+  id: string;
+  eventType: string;
+  schemaVersion: number;
+  aggregateType: string;
+  aggregateId: string;
+  payload: Record<string, unknown>;
+  occurredAt: Date;
+  correlationId: string | null;
+}

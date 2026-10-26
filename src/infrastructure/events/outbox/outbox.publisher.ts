@@ -7,6 +7,7 @@ import { DATABASE } from '../../../database/database.provider.js';
 import type { Producer } from 'kafkajs';
 import { KAFKA_PRODUCER } from '../../kafka/kafka.constants.js';
 import { sql } from 'drizzle-orm';
+import { ClaimedOutboxEvent } from './outbox.types.js';
 
 @Injectable()
 export class OutboxPublisher {
@@ -51,5 +52,26 @@ export class OutboxPublisher {
 
             return result.rows;
         })
+     }
+
+     private async publishEvent(event: ClaimedOutboxEvent): Promise<void>{
+        await this.producer.send({
+            topic: 'pocketledger.domain-events',
+            acks: -1,
+            messages: [{
+                key: event.id,
+                value: JSON.stringify({
+                    eventId: event.id,
+                    eventType: event.eventType,
+                    schemaVersion: event.schemaVersion,
+                    aggregateType: event.aggregateType,
+                    aggregateId: event.aggregateId,
+                    occuredAt: event.occurredAt.toISOString(),
+                    correlationId: event.correlationId,
+                    payload: event.payload
+                })
+            }]
+        })
+
      }
 }
