@@ -170,6 +170,24 @@ private async markFailed(
   return rows.length > 0;
 }
 
+private async deadLetterExhaustedEvents(): Promise<void>{
+     await this.db.update(outboxEvents)
+     .set({
+           status: 'dead_lettered',
+           processingAt: null,
+           lockedBy: null,
+           leaseExpiresAt: null,
+           lastError: 'Processing lease expired after maximum attempts were exhausted',
+           updatedAt: new Date()
+     }).where(
+        and(
+            eq(outboxEvents.status, 'processing'),
+            sql`${outboxEvents.leaseExpiresAt} <= NOW()`,
+            sql`${outboxEvents.attempts} => ${outboxEvents.maxAttempts}`
+        )
+     )
+}
+
 
 async onModuleInit(): Promise<void> {
   await this.pollOnce();
@@ -196,7 +214,8 @@ private async pollOnce(): Promise<void> {
   this.polling = true;
 
   try {
-    const events = await this.claimBatch();
+   await this.deadLetterExhaustedEvents(); 
+  const events = await this.claimBatch();
 
     for (const event of events) {
       if (this.stopping) {
