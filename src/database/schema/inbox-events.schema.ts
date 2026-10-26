@@ -10,10 +10,13 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-export const inboxEventStatusEnum = pgEnum(
-  'inbox_event_status',
-  ['received', 'processing', 'processed', 'failed', 'dead_lettered'],
-);
+export const inboxEventStatusEnum = pgEnum('inbox_event_status', [
+  'received',
+  'processing',
+  'processed',
+  'failed',
+  'dead_lettered',
+]);
 
 export const inboxEvents = pgTable(
   'inbox_events',
@@ -40,7 +43,9 @@ export const inboxEvents = pgTable(
 
     availableAt: timestamp('available_at', {
       withTimezone: true,
-    }).notNull().defaultNow(),
+    })
+      .notNull()
+      .defaultNow(),
 
     processingAt: timestamp('processing_at', {
       withTimezone: true,
@@ -56,7 +61,9 @@ export const inboxEvents = pgTable(
 
     receivedAt: timestamp('received_at', {
       withTimezone: true,
-    }).notNull().defaultNow(),
+    })
+      .notNull()
+      .defaultNow(),
 
     processedAt: timestamp('processed_at', {
       withTimezone: true,
@@ -66,26 +73,34 @@ export const inboxEvents = pgTable(
 
     createdAt: timestamp('created_at', {
       withTimezone: true,
-    }).notNull().defaultNow(),
+    })
+      .notNull()
+      .defaultNow(),
 
     updatedAt: timestamp('updated_at', {
       withTimezone: true,
-    }).notNull().defaultNow(),
+    })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     uniqueIndex('inbox_events_consumer_event_unique').on(
       table.consumerName,
       table.eventId,
     ),
+
     index('inbox_events_event_type_idx').on(table.eventType),
+
     index('inbox_events_status_available_at_idx').on(
       table.status,
       table.availableAt,
     ),
+
     index('inbox_events_status_lease_expires_at_idx').on(
       table.status,
       table.leaseExpiresAt,
     ),
+
     index('inbox_events_created_at_idx').on(table.createdAt),
   ],
 );

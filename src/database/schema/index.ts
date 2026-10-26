@@ -12,4 +12,5 @@ export * from './notifications.schema.js';
 export * from './notification-deliveries.schema.js';
 export * from './notification-preferences.schema.js';
 export * from './outbox-events.schema.js';
-export * from './inbox-events.schema.js';
+export * from './inbox-events.schema.js'
+

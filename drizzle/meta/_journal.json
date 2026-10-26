@@ -57,6 +57,13 @@
       "when": 1792845541683,
       "tag": "0007_familiar_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792945536100,
+      "tag": "0008_exotic_crystal",
+      "breakpoints": true
     }
   ]
 }
