@@ -6,6 +6,7 @@ import { DatabaseModule } from '../database/database.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { KafkaModule } from '../infrastructure/kafka/kafka.module.js';
+import { OutboxModule } from '../infrastructure/events/outbox/outbox.module.js';
 
 @Module({
   imports: [
@@ -14,7 +15,8 @@ import { KafkaModule } from '../infrastructure/kafka/kafka.module.js';
       validate: (config) => envSchema.parse(config),
     }),
     DatabaseModule,
-    KafkaModule
+    KafkaModule,
+    OutboxModule
   ],
   controllers: [AppController],
   providers: [AppService],

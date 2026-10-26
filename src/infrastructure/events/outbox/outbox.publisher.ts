@@ -59,7 +59,27 @@ private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
       RETURNING event.*;
     `);
 
-    return result.rows as unknown as ClaimedOutboxEvent[];
+    return result.rows.map((row) => {
+  const event = row as Record<string, unknown>;
+
+  return {
+    id: String(event.id),
+    eventType: String(event.event_type),
+    schemaVersion: Number(event.schema_version),
+    aggregateType: String(event.aggregate_type),
+    aggregateId: String(event.aggregate_id),
+    payload: event.payload as Record<string, unknown>,
+    occurredAt:
+      event.occurred_at instanceof Date
+        ? event.occurred_at
+        : new Date(String(event.occurred_at)),
+    correlationId:
+      event.correlation_id == null
+        ? null
+        : String(event.correlation_id),
+    attempts: Number(event.attempts),
+  };
+});
   });
 }
 
@@ -76,7 +96,7 @@ private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
                     schemaVersion: event.schemaVersion,
                     aggregateType: event.aggregateType,
                     aggregateId: event.aggregateId,
-                    occuredAt: event.occurredAt.toISOString(),
+                    occurredAt: event.occurredAt.toISOString(),
                     correlationId: event.correlationId,
                     payload: event.payload
                 })
