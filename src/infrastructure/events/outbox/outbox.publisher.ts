@@ -184,7 +184,7 @@ private async deadLetterExhaustedEvents(): Promise<void>{
         and(
             eq(outboxEvents.status, 'processing'),
             sql`${outboxEvents.leaseExpiresAt} <= NOW()`,
-            sql`${outboxEvents.attempts} => ${outboxEvents.maxAttempts}`
+            sql`${outboxEvents.attempts} >= ${outboxEvents.maxAttempts}`
         )
      )
 }
@@ -218,40 +218,61 @@ private async pollOnce(): Promise<void> {
    await this.deadLetterExhaustedEvents(); 
   const events = await this.claimBatch();
 
-    for (const event of events) {
-      if (this.stopping) {
-        break;
-      }
+      for (const event of events) {
+  if (this.stopping) {
+    break;
+  }
 
-      try {
-        await this.publishEvent(event);
-        const updated = await this.markPublished(event.id);
+  // Phase 1: Publish to Kafka.
+  try {
+    await this.publishEvent(event);
+  } catch (error) {
+    try {
+      const updated = await this.markFailed(
+        event.id,
+        event.attempts,
+        event.maxAttempts,
+        error,
+      );
 
-        if (!updated) {
-          this.logger.warn(
-            `Lost ownership while marking event ${event.id} as published`,
-          );
-        }
-      } catch (error) {
-        const updated = await this.markFailed(
-          event.id,
-          event.attempts,
-           event.maxAttempts,
-          error,
-        );
-
-        if (!updated) {
-          this.logger.warn(
-            `Lost ownership while handling failure for event ${event.id}`,
-          );
-        }
-
-        this.logger.error(
-          `Failed to publish outbox event ${event.id}`,
-          error instanceof Error ? error.stack : String(error),
+      if (!updated) {
+        this.logger.warn(
+          `Lost ownership while handling failure for event ${event.id}`,
         );
       }
+    } catch (markFailedError) {
+      this.logger.error(
+        `Failed to record publishing failure for event ${event.id}`,
+        markFailedError instanceof Error
+          ? markFailedError.stack
+          : String(markFailedError),
+      );
     }
+
+    this.logger.error(
+      `Failed to publish outbox event ${event.id}`,
+      error instanceof Error ? error.stack : String(error),
+    );
+
+    continue;
+  }
+
+  // Phase 2: Kafka accepted the message; record success in PostgreSQL.
+  try {
+    const updated = await this.markPublished(event.id);
+
+    if (!updated) {
+      this.logger.warn(
+        `Lost ownership while marking event ${event.id} as published`,
+      );
+    }
+  } catch (error) {
+    this.logger.error(
+      `Kafka accepted event ${event.id}, but marking it published in PostgreSQL failed. The event may be delivered again after lease recovery.`,
+      error instanceof Error ? error.stack : String(error),
+    );
+  }
+}
   } catch (error) {
     this.logger.error(
       'Outbox polling failed',
