@@ -1,5 +1,5 @@
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Database } from '../../../database/database.types.js';
 import { DATABASE } from '../../../database/database.provider.js';
@@ -10,10 +10,15 @@ import { ClaimedOutboxEvent } from './outbox.types.js';
 import { outboxEvents } from '../../../database/schema/outbox-events.schema.js';
 
 @Injectable()
-export class OutboxPublisher {
+export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
   private readonly workerId: string;
   private readonly batchSize = 100;
   private readonly leaseDurationMs = 60_000;
+  private readonly logger = new Logger(OutboxPublisher.name);
+private pollTimer: ReturnType<typeof setInterval> | undefined;
+private polling = false;
+private stopping = false;
+private readonly pollIntervalMs = 1_000;
 
   constructor(
     @Inject(DATABASE) private readonly db: Database,
@@ -23,36 +28,41 @@ export class OutboxPublisher {
     this.workerId =
       `${this.configService.get<string>('HOSTNAME') ?? 'pocketledger'}-${process.pid}`;
   }
-     private async claimBatch(){
-        return this.db.transaction(async(tx) => {
-           const result = await tx.execute(sql`
-               WITH candidates AS (
-                SELECT id
-                FROM outbox_events
-                WHERE attempts < max_attempts
-                AND(
-                    (status = 'pending' AND available_at <= Now())
-                )
-                ORDER BY available_at ASC, created_at ASC
-                LIMIT ${this.batchSize}
-                FOR UPDATE SKIP LOCKED
-               )
-               UPDATE outbox_events AS event
-               SET
-               status = 'processing',
-               attempts = event.attempts + 1,
-               processing_at = Now(),
-               lockedby: ${this.workerId},
-               lease_expire_at = Now() + (leaseDurationMs=${this.leaseDurationMs} * INTERVAL '1 milliseconds'),
-               updated_at = Now()
-               FROM  candidates
-               WHERE event.id = candidates.id
-               RETURNING event.*;
-            `);
+    
+private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
+  return this.db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
+      WITH candidates AS (
+        SELECT id
+        FROM outbox_events
+        WHERE attempts < max_attempts
+          AND (
+            (status = 'pending' AND available_at <= NOW())
+            OR
+            (status = 'processing' AND lease_expires_at <= NOW())
+          )
+        ORDER BY available_at ASC, created_at ASC
+        LIMIT ${this.batchSize}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE outbox_events AS event
+      SET
+        status = 'processing',
+        attempts = event.attempts + 1,
+        processing_at = NOW(),
+        locked_by = ${this.workerId},
+        lease_expires_at =
+          NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond'),
+        updated_at = NOW()
+      FROM candidates
+      WHERE event.id = candidates.id
+      RETURNING event.*;
+    `);
 
-            return result.rows;
-        })
-     }
+    return result.rows as unknown as ClaimedOutboxEvent[];
+  });
+}
+
 
      private async publishEvent(event: ClaimedOutboxEvent): Promise<void>{
         await this.producer.send({
@@ -139,4 +149,76 @@ private async markFailed(
 
   return rows.length > 0;
 }
+
+
+async onModuleInit(): Promise<void> {
+  await this.pollOnce();
+
+  this.pollTimer = setInterval(() => {
+    void this.pollOnce();
+  }, this.pollIntervalMs);
+}
+
+async onApplicationShutdown(): Promise<void> {
+  this.stopping = true;
+
+  if (this.pollTimer) {
+    clearInterval(this.pollTimer);
+    this.pollTimer = undefined;
+  }
+}
+
+private async pollOnce(): Promise<void> {
+  if (this.polling || this.stopping) {
+    return;
+  }
+
+  this.polling = true;
+
+  try {
+    const events = await this.claimBatch();
+
+    for (const event of events) {
+      if (this.stopping) {
+        break;
+      }
+
+      try {
+        await this.publishEvent(event);
+        const updated = await this.markPublished(event.id);
+
+        if (!updated) {
+          this.logger.warn(
+            `Lost ownership while marking event ${event.id} as published`,
+          );
+        }
+      } catch (error) {
+        const updated = await this.markFailed(
+          event.id,
+          event.attempts,
+          error,
+        );
+
+        if (!updated) {
+          this.logger.warn(
+            `Lost ownership while handling failure for event ${event.id}`,
+          );
+        }
+
+        this.logger.error(
+          `Failed to publish outbox event ${event.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+    }
+  } catch (error) {
+    this.logger.error(
+      'Outbox polling failed',
+      error instanceof Error ? error.stack : String(error),
+    );
+  } finally {
+    this.polling = false;
+  }
+}
+
 }
