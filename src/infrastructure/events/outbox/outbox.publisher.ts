@@ -90,7 +90,7 @@ private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
             topic: 'pocketledger.domain-events',
             acks: -1,
             messages: [{
-                key: event.id,
+                key: `${event.aggregateType}:${event.aggregateId}`,
                 value: JSON.stringify({
                     eventId: event.id,
                     eventType: event.eventType,
