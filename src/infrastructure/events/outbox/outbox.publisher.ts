@@ -13,6 +13,7 @@ import { KAFKA_PRODUCER } from '../../kafka/kafka.constants.js';
 import { and, eq, sql } from 'drizzle-orm';
 import { ClaimedOutboxEvent } from './outbox.types.js';
 import { outboxEvents } from '../../../database/schema/outbox-events.schema.js';
+import { OutboxRepository } from './outbox.repository.js';
 
 @Injectable()
 export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
@@ -30,78 +31,10 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
     @Inject(DATABASE) private readonly db: Database,
     @Inject(KAFKA_PRODUCER) private readonly producer: Producer,
     private readonly configService: ConfigService,
+     private readonly outboxRepository: OutboxRepository,
   ) {
     this.workerId = `${this.configService.get<string>('HOSTNAME') ?? 'pocketledger'}-${process.pid}`;
   }
-
-  private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
-    return this.db.transaction(async (tx) => {
-      const result = await tx.execute(sql`
-  WITH candidates AS (
-    SELECT candidate.id
-    FROM outbox_events AS candidate
-    WHERE candidate.attempts < candidate.max_attempts
-      AND (
-        (
-          candidate.status = 'pending'
-          AND candidate.available_at <= NOW()
-        )
-        OR
-        (
-          candidate.status = 'processing'
-          AND candidate.lease_expires_at <= NOW()
-        )
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM outbox_events AS older
-        WHERE older.aggregate_type = candidate.aggregate_type
-          AND older.aggregate_id = candidate.aggregate_id
-          AND (older.created_at, older.id)
-              < (candidate.created_at, candidate.id)
-          AND older.status IN ('pending', 'processing')
-      )
-    ORDER BY candidate.created_at ASC, candidate.id ASC
-    LIMIT ${this.batchSize}
-    FOR UPDATE OF candidate SKIP LOCKED
-  )
-  UPDATE outbox_events AS event
-  SET
-    status = 'processing',
-    attempts = event.attempts + 1,
-    processing_at = NOW(),
-    locked_by = ${this.workerId},
-    lease_expires_at =
-      NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond'),
-    updated_at = NOW()
-  FROM candidates
-  WHERE event.id = candidates.id
-  RETURNING event.*;
-`);
-
-      return result.rows.map((row) => {
-        const event = row as Record<string, unknown>;
-
-        return {
-          id: String(event.id),
-          eventType: String(event.event_type),
-          schemaVersion: Number(event.schema_version),
-          aggregateType: String(event.aggregate_type),
-          aggregateId: String(event.aggregate_id),
-          payload: event.payload as Record<string, unknown>,
-          occurredAt:
-            event.occurred_at instanceof Date
-              ? event.occurred_at
-              : new Date(String(event.occurred_at)),
-          correlationId:
-            event.correlation_id == null ? null : String(event.correlation_id),
-          attempts: Number(event.attempts),
-          maxAttempts: Number(event.max_attempts),
-        };
-      });
-    });
-  }
-
   private async publishEvent(event: ClaimedOutboxEvent): Promise<void> {
     await this.producer.send({
       topic: 'pocketledger.domain-events',
@@ -282,7 +215,7 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
 
     try {
       await this.deadLetterExhaustedEvents();
-      const events = await this.claimBatch();
+       const events = await this.outboxRepository.claimBatch(this.workerId);
 
       const eventIds = events.map((event) => event.id);
       let renewalInProgress = false;
