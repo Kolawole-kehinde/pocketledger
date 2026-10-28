@@ -208,4 +208,52 @@ async markFailed(
 
   return rows.length > 0;
 }
+
+async deadLetterExhaustedEvents(): Promise<void> {
+  await this.db
+    .update(outboxEvents)
+    .set({
+      status: 'dead_lettered',
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError:
+        'Processing lease expired after maximum attempts were exhausted',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.status, 'processing'),
+        sql`${outboxEvents.leaseExpiresAt} <= NOW()`,
+        sql`${outboxEvents.attempts} >= ${outboxEvents.maxAttempts}`,
+      ),
+    );
+}
+
+async releaseUnprocessedEvents(
+  workerId: string,
+  events: ClaimedOutboxEvent[],
+  startIndex: number,
+): Promise<void> {
+  const remainingEvents = events.slice(startIndex);
+
+  if (remainingEvents.length === 0) return;
+
+  await this.db
+    .update(outboxEvents)
+    .set({
+      status: 'pending',
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, workerId),
+        sql`${outboxEvents.id} = ANY(${remainingEvents.map((event) => event.id)}::uuid[])`,
+      ),
+    );
+}
 }
