@@ -1,5 +1,10 @@
-
-import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Database } from '../../../database/database.types.js';
 import { DATABASE } from '../../../database/database.provider.js';
@@ -14,273 +19,359 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
   private readonly workerId: string;
   private readonly batchSize = 100;
   private readonly leaseDurationMs = 60_000;
+  private readonly leaseRenewalIntervalMs = 20_000;
   private readonly logger = new Logger(OutboxPublisher.name);
-private pollTimer: ReturnType<typeof setInterval> | undefined;
-private polling = false;
-private stopping = false;
-private readonly pollIntervalMs = 1_000;
+  private pollTimer: ReturnType<typeof setInterval> | undefined;
+  private polling = false;
+  private stopping = false;
+  private readonly pollIntervalMs = 1_000;
 
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(KAFKA_PRODUCER) private readonly producer: Producer,
     private readonly configService: ConfigService,
   ) {
-    this.workerId =
-      `${this.configService.get<string>('HOSTNAME') ?? 'pocketledger'}-${process.pid}`;
+    this.workerId = `${this.configService.get<string>('HOSTNAME') ?? 'pocketledger'}-${process.pid}`;
   }
-    
-private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
-  return this.db.transaction(async (tx) => {
-    const result = await tx.execute(sql`
-      WITH candidates AS (
-        SELECT id
-        FROM outbox_events
-        WHERE attempts < max_attempts
-          AND (
-            (status = 'pending' AND available_at <= NOW())
-            OR
-            (status = 'processing' AND lease_expires_at <= NOW())
-          )
-        ORDER BY available_at ASC, created_at ASC
-        LIMIT ${this.batchSize}
-        FOR UPDATE SKIP LOCKED
-      )
-      UPDATE outbox_events AS event
-      SET
-        status = 'processing',
-        attempts = event.attempts + 1,
-        processing_at = NOW(),
-        locked_by = ${this.workerId},
-        lease_expires_at =
-          NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond'),
-        updated_at = NOW()
-      FROM candidates
-      WHERE event.id = candidates.id
-      RETURNING event.*;
-    `);
 
-    return result.rows.map((row) => {
-  const event = row as Record<string, unknown>;
-
-  return {
-    id: String(event.id),
-    eventType: String(event.event_type),
-    schemaVersion: Number(event.schema_version),
-    aggregateType: String(event.aggregate_type),
-    aggregateId: String(event.aggregate_id),
-    payload: event.payload as Record<string, unknown>,
-    occurredAt:
-      event.occurred_at instanceof Date
-        ? event.occurred_at
-        : new Date(String(event.occurred_at)),
-    correlationId:
-      event.correlation_id == null
-        ? null
-        : String(event.correlation_id),
-    attempts: Number(event.attempts),
-    maxAttempts: Number(event.max_attempts),
-  };
-});
-  });
-}
-
-
-     private async publishEvent(event: ClaimedOutboxEvent): Promise<void>{
-        await this.producer.send({
-            topic: 'pocketledger.domain-events',
-            acks: -1,
-            messages: [{
-                key: `${event.aggregateType}:${event.aggregateId}`,
-                value: JSON.stringify({
-                    eventId: event.id,
-                    eventType: event.eventType,
-                    schemaVersion: event.schemaVersion,
-                    aggregateType: event.aggregateType,
-                    aggregateId: event.aggregateId,
-                    occurredAt: event.occurredAt.toISOString(),
-                    correlationId: event.correlationId,
-                    payload: event.payload
-                })
-            }]
-        })
-
-     }
-
-private async markPublished(eventId: string): Promise<boolean> {
-  const rows = await this.db
-    .update(outboxEvents)
-    .set({
-      status: 'published',
-      publishedAt: new Date(),
-      processingAt: null,
-      lockedBy: null,
-      leaseExpiresAt: null,
-      lastError: null,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(outboxEvents.id, eventId),
-        eq(outboxEvents.status, 'processing'),
-        eq(outboxEvents.lockedBy, this.workerId),
-      ),
-    )
-    .returning({ id: outboxEvents.id });
-
-  return rows.length > 0;
-}
-     
-private async markFailed(
-  eventId: string,
-  attempts: number,
-  maxAttempts: number,
-  error: unknown,
-): Promise<boolean> {
-  const shouldDeadLetter = attempts >= maxAttempts;
-
-  const backoffMs = Math.min(
-    1_000 * 2 ** Math.max(attempts - 1, 0),
-    5 * 60 * 1_000,
-  );
-
-  const message =
-    error instanceof Error
-      ? error.message
-      : 'Unknown Kafka publishing error';
-
-  const rows = await this.db
-    .update(outboxEvents)
-    .set({
-      status: shouldDeadLetter ? 'dead_lettered' : 'pending',
-      availableAt: new Date(Date.now() + backoffMs),
-      processingAt: null,
-      lockedBy: null,
-      leaseExpiresAt: null,
-      lastError: message.slice(0, 1000),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(outboxEvents.id, eventId),
-        eq(outboxEvents.status, 'processing'),
-        eq(outboxEvents.lockedBy, this.workerId),
-      ),
-    )
-    .returning({ id: outboxEvents.id });
-
-  return rows.length > 0;
-};
-
-private async deadLetterExhaustedEvents(): Promise<void>{
-     await this.db.update(outboxEvents)
-     .set({
-           status: 'dead_lettered',
-           processingAt: null,
-           lockedBy: null,
-           leaseExpiresAt: null,
-           lastError: 'Processing lease expired after maximum attempts were exhausted',
-           updatedAt: new Date()
-     }).where(
-        and(
-            eq(outboxEvents.status, 'processing'),
-            sql`${outboxEvents.leaseExpiresAt} <= NOW()`,
-            sql`${outboxEvents.attempts} >= ${outboxEvents.maxAttempts}`
+  private async claimBatch(): Promise<ClaimedOutboxEvent[]> {
+    return this.db.transaction(async (tx) => {
+      const result = await tx.execute(sql`
+  WITH candidates AS (
+    SELECT candidate.id
+    FROM outbox_events AS candidate
+    WHERE candidate.attempts < candidate.max_attempts
+      AND (
+        (
+          candidate.status = 'pending'
+          AND candidate.available_at <= NOW()
         )
-     )
-}
+        OR
+        (
+          candidate.status = 'processing'
+          AND candidate.lease_expires_at <= NOW()
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM outbox_events AS older
+        WHERE older.aggregate_type = candidate.aggregate_type
+          AND older.aggregate_id = candidate.aggregate_id
+          AND (older.created_at, older.id)
+              < (candidate.created_at, candidate.id)
+          AND older.status IN ('pending', 'processing')
+      )
+    ORDER BY candidate.created_at ASC, candidate.id ASC
+    LIMIT ${this.batchSize}
+    FOR UPDATE OF candidate SKIP LOCKED
+  )
+  UPDATE outbox_events AS event
+  SET
+    status = 'processing',
+    attempts = event.attempts + 1,
+    processing_at = NOW(),
+    locked_by = ${this.workerId},
+    lease_expires_at =
+      NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond'),
+    updated_at = NOW()
+  FROM candidates
+  WHERE event.id = candidates.id
+  RETURNING event.*;
+`);
 
+      return result.rows.map((row) => {
+        const event = row as Record<string, unknown>;
 
-async onModuleInit(): Promise<void> {
-  await this.pollOnce();
-
-  this.pollTimer = setInterval(() => {
-    void this.pollOnce();
-  }, this.pollIntervalMs);
-}
-
-async onApplicationShutdown(): Promise<void> {
-  this.stopping = true;
-
-  if (this.pollTimer) {
-    clearInterval(this.pollTimer);
-    this.pollTimer = undefined;
+        return {
+          id: String(event.id),
+          eventType: String(event.event_type),
+          schemaVersion: Number(event.schema_version),
+          aggregateType: String(event.aggregate_type),
+          aggregateId: String(event.aggregate_id),
+          payload: event.payload as Record<string, unknown>,
+          occurredAt:
+            event.occurred_at instanceof Date
+              ? event.occurred_at
+              : new Date(String(event.occurred_at)),
+          correlationId:
+            event.correlation_id == null ? null : String(event.correlation_id),
+          attempts: Number(event.attempts),
+          maxAttempts: Number(event.max_attempts),
+        };
+      });
+    });
   }
-}
 
-private async pollOnce(): Promise<void> {
-  if (this.polling || this.stopping) {
+  private async publishEvent(event: ClaimedOutboxEvent): Promise<void> {
+    await this.producer.send({
+      topic: 'pocketledger.domain-events',
+      acks: -1,
+      messages: [
+        {
+          key: `${event.aggregateType}:${event.aggregateId}`,
+          value: JSON.stringify({
+            eventId: event.id,
+            eventType: event.eventType,
+            schemaVersion: event.schemaVersion,
+            aggregateType: event.aggregateType,
+            aggregateId: event.aggregateId,
+            occurredAt: event.occurredAt.toISOString(),
+            correlationId: event.correlationId,
+            payload: event.payload,
+          }),
+        },
+      ],
+    });
+  }
+
+  private async markPublished(eventId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(outboxEvents)
+      .set({
+        status: 'published',
+        publishedAt: new Date(),
+        processingAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(outboxEvents.id, eventId),
+          eq(outboxEvents.status, 'processing'),
+          eq(outboxEvents.lockedBy, this.workerId),
+        ),
+      )
+      .returning({ id: outboxEvents.id });
+
+    return rows.length > 0;
+  }
+
+  private async markFailed(
+    eventId: string,
+    attempts: number,
+    maxAttempts: number,
+    error: unknown,
+  ): Promise<boolean> {
+    const shouldDeadLetter = attempts >= maxAttempts;
+
+    const backoffMs = Math.min(
+      1_000 * 2 ** Math.max(attempts - 1, 0),
+      5 * 60 * 1_000,
+    );
+
+    const message =
+      error instanceof Error ? error.message : 'Unknown Kafka publishing error';
+
+    const rows = await this.db
+      .update(outboxEvents)
+      .set({
+        status: shouldDeadLetter ? 'dead_lettered' : 'pending',
+        availableAt: new Date(Date.now() + backoffMs),
+        processingAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        lastError: message.slice(0, 1000),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(outboxEvents.id, eventId),
+          eq(outboxEvents.status, 'processing'),
+          eq(outboxEvents.lockedBy, this.workerId),
+        ),
+      )
+      .returning({ id: outboxEvents.id });
+
+    return rows.length > 0;
+  }
+
+  private async deadLetterExhaustedEvents(): Promise<void> {
+    await this.db
+      .update(outboxEvents)
+      .set({
+        status: 'dead_lettered',
+        processingAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        lastError:
+          'Processing lease expired after maximum attempts were exhausted',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(outboxEvents.status, 'processing'),
+          sql`${outboxEvents.leaseExpiresAt} <= NOW()`,
+          sql`${outboxEvents.attempts} >= ${outboxEvents.maxAttempts}`,
+        ),
+      );
+  }
+
+  private async renewLeases(eventIds: string[]): Promise<void> {
+    if (eventIds.length === 0) return;
+
+    await this.db
+      .update(outboxEvents)
+      .set({
+        leaseExpiresAt: sql`
+        NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond')
+      `,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(outboxEvents.status, 'processing'),
+          eq(outboxEvents.lockedBy, this.workerId),
+          sql`${outboxEvents.id} = ANY(${eventIds}::uuid[])`,
+        ),
+      );
+  }
+
+  private async releaseUnprocessedEvents(
+  events: ClaimedOutboxEvent[],
+  startIndex: number,
+): Promise<void> {
+  const remainingEvents = events.slice(startIndex);
+
+  if (remainingEvents.length === 0) {
     return;
   }
 
-  this.polling = true;
+  await this.db
+    .update(outboxEvents)
+    .set({
+      status: 'pending',
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, this.workerId),
+        sql`${outboxEvents.id} = ANY(${remainingEvents.map((event) => event.id)}::uuid[])`,
+      ),
+    );
+}
 
-  try {
-   await this.deadLetterExhaustedEvents(); 
-  const events = await this.claimBatch();
+  async onModuleInit(): Promise<void> {
+    await this.pollOnce();
 
-      for (const event of events) {
-  if (this.stopping) {
-    break;
+    this.pollTimer = setInterval(() => {
+      void this.pollOnce();
+    }, this.pollIntervalMs);
   }
 
-  // Phase 1: Publish to Kafka.
-  try {
-    await this.publishEvent(event);
-  } catch (error) {
+  async onApplicationShutdown(): Promise<void> {
+    this.stopping = true;
+
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
+  }
+
+  private async pollOnce(): Promise<void> {
+    if (this.polling || this.stopping) {
+      return;
+    }
+
+    this.polling = true;
+
     try {
-      const updated = await this.markFailed(
-        event.id,
-        event.attempts,
-        event.maxAttempts,
-        error,
-      );
+      await this.deadLetterExhaustedEvents();
+      const events = await this.claimBatch();
 
-      if (!updated) {
-        this.logger.warn(
-          `Lost ownership while handling failure for event ${event.id}`,
-        );
+      const eventIds = events.map((event) => event.id);
+      let renewalInProgress = false;
+
+      const leaseTimer = setInterval(() => {
+        if (renewalInProgress || this.stopping || eventIds.length === 0) {
+          return;
+        }
+
+        renewalInProgress = true;
+
+        void this.renewLeases(eventIds)
+          .catch((error) => {
+            this.logger.error(
+              'Failed to renew outbox event leases',
+              error instanceof Error ? error.stack : String(error),
+            );
+          })
+          .finally(() => {
+            renewalInProgress = false;
+          });
+      }, this.leaseRenewalIntervalMs);
+
+      try {
+        for (const event of events) {
+          if (this.stopping) {
+            break;
+          }
+
+          // Phase 1: Publish to Kafka.
+          try {
+            await this.publishEvent(event);
+          } catch (error) {
+            try {
+              const updated = await this.markFailed(
+                event.id,
+                event.attempts,
+                event.maxAttempts,
+                error,
+              );
+
+              if (!updated) {
+                this.logger.warn(
+                  `Lost ownership while handling failure for event ${event.id}`,
+                );
+              }
+            } catch (markFailedError) {
+              this.logger.error(
+                `Failed to record publishing failure for event ${event.id}`,
+                markFailedError instanceof Error
+                  ? markFailedError.stack
+                  : String(markFailedError),
+              );
+            }
+
+            this.logger.error(
+              `Failed to publish outbox event ${event.id}`,
+              error instanceof Error ? error.stack : String(error),
+            );
+
+            continue;
+          }
+
+          // Phase 2: Kafka accepted the message; record success in PostgreSQL.
+          try {
+            const updated = await this.markPublished(event.id);
+
+            if (!updated) {
+              this.logger.warn(
+                `Lost ownership while marking event ${event.id} as published`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              `Kafka accepted event ${event.id}, but marking it published in PostgreSQL failed. The event may be delivered again after lease recovery.`,
+              error instanceof Error ? error.stack : String(error),
+            );
+          }
+        }
+      } finally {
+        clearInterval(leaseTimer);
       }
-    } catch (markFailedError) {
+    } catch (error) {
       this.logger.error(
-        `Failed to record publishing failure for event ${event.id}`,
-        markFailedError instanceof Error
-          ? markFailedError.stack
-          : String(markFailedError),
+        'Outbox polling failed',
+        error instanceof Error ? error.stack : String(error),
       );
+    } finally {
+      this.polling = false;
     }
-
-    this.logger.error(
-      `Failed to publish outbox event ${event.id}`,
-      error instanceof Error ? error.stack : String(error),
-    );
-
-    continue;
   }
-
-  // Phase 2: Kafka accepted the message; record success in PostgreSQL.
-  try {
-    const updated = await this.markPublished(event.id);
-
-    if (!updated) {
-      this.logger.warn(
-        `Lost ownership while marking event ${event.id} as published`,
-      );
-    }
-  } catch (error) {
-    this.logger.error(
-      `Kafka accepted event ${event.id}, but marking it published in PostgreSQL failed. The event may be delivered again after lease recovery.`,
-      error instanceof Error ? error.stack : String(error),
-    );
-  }
-}
-  } catch (error) {
-    this.logger.error(
-      'Outbox polling failed',
-      error instanceof Error ? error.stack : String(error),
-    );
-  } finally {
-    this.polling = false;
-  }
-}
-
 }

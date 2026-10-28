@@ -1,0 +1,423 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model audit_logs {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actor_user_id String?      @db.Uuid
+  action        audit_action
+  entity_type   String       @db.VarChar(100)
+  entity_id     String?      @db.Uuid
+  ip_address    String?      @db.Inet
+  user_agent    String?      @db.VarChar(1000)
+  before        Json?
+  after         Json?
+  metadata      Json?
+  created_at    DateTime     @default(now()) @db.Timestamptz(6)
+  users         users?       @relation(fields: [actor_user_id], references: [id], onUpdate: NoAction, map: "audit_logs_actor_user_id_users_id_fk")
+
+  @@index([action])
+  @@index([actor_user_id])
+  @@index([created_at])
+  @@index([entity_type, entity_id], map: "audit_logs_entity_idx")
+}
+
+model email_outbox {
+  id                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recipient              String              @db.VarChar(255)
+  template               email_template
+  encrypted_payload      String
+  encryption_key_version String              @db.VarChar(50)
+  status                 email_outbox_status @default(pending)
+  attempt_count          Int                 @default(0)
+  available_at           DateTime            @default(now()) @db.Timestamptz(6)
+  sent_at                DateTime?           @db.Timestamptz(6)
+  last_error             String?             @db.VarChar(1000)
+  created_at             DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime            @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at])
+  @@index([status, available_at])
+}
+
+model inbox_events {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  consumer_name    String             @db.VarChar(200)
+  event_id         String             @db.Uuid
+  event_type       String             @db.VarChar(200)
+  schema_version   Int                @default(1)
+  status           inbox_event_status @default(received)
+  attempts         Int                @default(0)
+  max_attempts     Int                @default(10)
+  available_at     DateTime           @default(now()) @db.Timestamptz(6)
+  processing_at    DateTime?          @db.Timestamptz(6)
+  claim_token      String?            @db.Uuid
+  locked_by        String?            @db.VarChar(255)
+  lease_expires_at DateTime?          @db.Timestamptz(6)
+  received_at      DateTime           @default(now()) @db.Timestamptz(6)
+  processed_at     DateTime?          @db.Timestamptz(6)
+  failure_reason   String?            @db.VarChar(1000)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+
+  @@unique([consumer_name, event_id], map: "inbox_events_consumer_event_unique")
+  @@index([created_at])
+  @@index([event_type])
+  @@index([status, available_at])
+  @@index([status, lease_expires_at])
+}
+
+model login_attempts {
+  id             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String?               @db.Uuid
+  email          String?               @db.VarChar(255)
+  success        Boolean
+  failure_reason login_failure_reason?
+  ip_address     String?               @db.Inet
+  user_agent     String?               @db.VarChar(1000)
+  country        String?               @db.VarChar(100)
+  city           String?               @db.VarChar(100)
+  latitude       Float?
+  longitude      Float?
+  created_at     DateTime              @default(now()) @db.Timestamptz(6)
+  users          users?                @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "login_attempts_user_id_users_id_fk")
+
+  @@index([created_at])
+  @@index([email])
+  @@index([ip_address])
+  @@index([user_id])
+}
+
+model notification_deliveries {
+  id                  String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notification_id     String               @db.Uuid
+  channel             notification_channel
+  status              delivery_status      @default(pending)
+  attempts            Int                  @default(0)
+  max_attempts        Int                  @default(5)
+  next_retry_at       DateTime?            @db.Timestamptz(6)
+  provider_message_id String?              @db.VarChar(255)
+  failure_reason      String?              @db.VarChar(1000)
+  last_attempt_at     DateTime?            @db.Timestamptz(6)
+  delivered_at        DateTime?            @db.Timestamptz(6)
+  dead_lettered_at    DateTime?            @db.Timestamptz(6)
+  locked_by           String?              @db.VarChar(255)
+  lease_expires_at    DateTime?            @db.Timestamptz(6)
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  notifications       notifications        @relation(fields: [notification_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "notification_deliveries_notification_id_notifications_id_fk")
+
+  @@unique([notification_id, channel], map: "notification_deliveries_notification_channel_unique")
+  @@index([status, lease_expires_at], map: "notification_deliveries_lease_idx")
+  @@index([notification_id])
+  @@index([status, next_retry_at, created_at], map: "notification_deliveries_retry_idx")
+  @@index([status])
+}
+
+model notification_preferences {
+  id         String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String               @db.Uuid
+  type       notification_type
+  channel    notification_channel
+  enabled    Boolean              @default(true)
+  created_at DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at DateTime             @default(now()) @db.Timestamptz(6)
+  users      users                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "notification_preferences_user_id_users_id_fk")
+
+  @@unique([user_id, type, channel], map: "notification_preferences_user_type_channel_unique")
+  @@index([user_id])
+}
+
+model notifications {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                 String                    @db.Uuid
+  type                    notification_type
+  title                   String                    @db.VarChar(200)
+  message                 String
+  status                  notification_status       @default(unread)
+  event_id                String                    @db.Uuid
+  event_type              String                    @db.VarChar(150)
+  metadata                Json?
+  read_at                 DateTime?                 @db.Timestamptz(6)
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  notification_deliveries notification_deliveries[]
+  users                   users                     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "notifications_user_id_users_id_fk")
+
+  @@unique([event_id, user_id, type], map: "notifications_event_user_type_unique")
+  @@index([event_id])
+  @@index([user_id, created_at], map: "notifications_user_created_at_idx")
+  @@index([user_id, read_at], map: "notifications_user_read_at_idx")
+}
+
+model otp_challenges {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String      @db.VarChar(255)
+  purpose      otp_purpose
+  code_hash    String      @db.VarChar(128)
+  expires_at   DateTime    @db.Timestamptz(6)
+  attempts     Int         @default(0)
+  max_attempts Int         @default(5)
+  consumed_at  DateTime?   @db.Timestamptz(6)
+  created_at   DateTime    @default(now()) @db.Timestamptz(6)
+
+  @@index([email, purpose])
+  @@index([expires_at])
+}
+
+model outbox_events {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  event_type         String              @db.VarChar(200)
+  schema_version     Int                 @default(1)
+  aggregate_type     String              @db.VarChar(100)
+  aggregate_id       String              @db.VarChar(255)
+  payload            Json
+  correlation_id     String?             @db.Uuid
+  status             outbox_event_status @default(pending)
+  attempts           Int                 @default(0)
+  max_attempts       Int                 @default(10)
+  available_at       DateTime            @default(now()) @db.Timestamptz(6)
+  processing_at      DateTime?           @db.Timestamptz(6)
+  locked_by          String?             @db.VarChar(255)
+  lease_expires_at   DateTime?           @db.Timestamptz(6)
+  occurred_at        DateTime            @default(now()) @db.Timestamptz(6)
+  published_at       DateTime?           @db.Timestamptz(6)
+  last_error         String?             @db.VarChar(1000)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime            @default(now()) @db.Timestamptz(6)
+  aggregate_sequence BigInt?
+  claim_token        String?             @db.Uuid
+
+  @@index([aggregate_type, aggregate_id], map: "outbox_events_aggregate_idx")
+  @@index([aggregate_type, aggregate_id, aggregate_sequence], map: "outbox_events_aggregate_sequence_idx")
+  @@index([created_at])
+  @@index([event_type])
+  @@index([status, lease_expires_at], map: "outbox_events_lease_expires_at_idx")
+  @@index([status, available_at])
+}
+
+model pending_registrations {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String    @unique(map: "pending_registrations_email_unique") @db.VarChar(255)
+  email_verified_at DateTime? @db.Timestamptz(6)
+  expires_at        DateTime  @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model refresh_tokens {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id           String    @db.Uuid
+  token_hash           String    @unique(map: "refresh_tokens_token_hash_unique") @db.VarChar(128)
+  expires_at           DateTime  @db.Timestamptz(6)
+  revoked_at           DateTime? @db.Timestamptz(6)
+  replaced_by_token_id String?   @db.Uuid
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  sessions             sessions  @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "refresh_tokens_session_id_sessions_id_fk")
+
+  @@index([expires_at])
+  @@index([session_id])
+}
+
+model security_events {
+  id          String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String?                 @db.Uuid
+  type        security_event_type
+  severity    security_event_severity @default(medium)
+  ip_address  String?                 @db.Inet
+  user_agent  String?                 @db.VarChar(1000)
+  country     String?                 @db.VarChar(100)
+  city        String?                 @db.VarChar(100)
+  metadata    Json?
+  resolved_at DateTime?               @db.Timestamptz(6)
+  created_at  DateTime                @default(now()) @db.Timestamptz(6)
+  users       users?                  @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "security_events_user_id_users_id_fk")
+
+  @@index([created_at])
+  @@index([severity])
+  @@index([type])
+  @@index([user_id])
+}
+
+model sessions {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String                     @db.Uuid
+  device_name      String?                    @db.VarChar(255)
+  user_agent       String?                    @db.VarChar(1000)
+  ip_address       String?                    @db.Inet
+  country          String?                    @db.VarChar(100)
+  city             String?                    @db.VarChar(100)
+  last_activity_at DateTime?                  @db.Timestamptz(6)
+  expires_at       DateTime                   @db.Timestamptz(6)
+  revoked_at       DateTime?                  @db.Timestamptz(6)
+  revoke_reason    session_revocation_reason?
+  created_at       DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime                   @default(now()) @db.Timestamptz(6)
+  refresh_tokens   refresh_tokens[]
+  users            users                      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sessions_user_id_users_id_fk")
+
+  @@index([expires_at])
+  @@index([revoked_at])
+  @@index([user_id])
+}
+
+model users {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  first_name               String                     @db.VarChar(100)
+  last_name                String                     @db.VarChar(100)
+  middle_name              String?                    @db.VarChar(100)
+  username                 String?                    @unique(map: "users_username_unique") @db.VarChar(50)
+  phone_number             String?                    @unique(map: "users_phone_number_unique") @db.VarChar(20)
+  email                    String                     @unique(map: "users_email_unique") @db.VarChar(255)
+  role                     user_role                  @default(customer)
+  status                   user_status                @default(pending_verification)
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  audit_logs               audit_logs[]
+  login_attempts           login_attempts[]
+  notification_preferences notification_preferences[]
+  notifications            notifications[]
+  security_events          security_events[]
+  sessions                 sessions[]
+}
+
+enum audit_action {
+  user_created
+  user_updated
+  user_suspended
+  user_reactivated
+  role_changed
+  wallet_created
+  deposit_initiated
+  deposit_completed
+  transfer_initiated
+  transfer_completed
+  transfer_failed
+  refund_initiated
+  refund_completed
+  reversal_created
+  admin_action
+}
+
+enum delivery_status {
+  pending
+  processing
+  delivered
+  failed
+  dead_lettered
+}
+
+enum email_outbox_status {
+  pending
+  processing
+  sent
+  failed
+}
+
+enum email_template {
+  registration_otp
+  login_otp
+  security_notification
+}
+
+enum inbox_event_status {
+  received
+  processing
+  processed
+  failed
+  dead_lettered
+}
+
+enum login_failure_reason {
+  invalid_otp
+  otp_expired
+  otp_already_used
+  too_many_attempts
+  rate_limited
+  account_unavailable
+  session_creation_failed
+}
+
+enum notification_channel {
+  in_app
+  email
+  push
+  sms
+}
+
+enum notification_status {
+  unread
+  read
+  archived
+}
+
+enum notification_type {
+  security_alert
+  transaction_update
+  deposit_update
+  withdrawal_update
+  system_announcement
+}
+
+enum otp_purpose {
+  registration
+  login
+}
+
+enum outbox_event_status {
+  pending
+  processing
+  published
+  dead_lettered
+}
+
+enum security_event_severity {
+  low
+  medium
+  high
+  critical
+}
+
+enum security_event_type {
+  otp_requested
+  otp_verification_failed
+  login_succeeded
+  login_failed
+  session_created
+  session_revoked
+  refresh_token_rotated
+  refresh_token_reuse_detected
+  rate_limit_exceeded
+  account_suspended
+  account_reactivated
+  suspicious_activity_detected
+}
+
+enum session_revocation_reason {
+  user_logout
+  logout_all
+  refresh_token_reuse
+  security_concern
+  password_changed
+  account_suspended
+  admin_revoked
+  session_expired
+}
+
+enum user_role {
+  customer
+  support
+  admin
+}
+
+enum user_status {
+  pending_verification
+  active
+  suspended
+  closed
+}

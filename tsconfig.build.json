@@ -1,8 +1,20 @@
+
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "incremental": false,
+    "declaration": false,
+    "sourceMap": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "generated",
+    "**/*.spec.ts",
+    "**/*.e2e-spec.ts"
+  ]
 }
