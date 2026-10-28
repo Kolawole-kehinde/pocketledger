@@ -121,5 +121,27 @@ export class OutboxRepository {
     });
   }
 
-  
+  async renewLeases(
+  workerId: string,
+  eventIds: string[],
+  leaseDurationMs: number,
+): Promise<void> {
+  if (eventIds.length === 0) return;
+
+  await this.db
+    .update(outboxEvents)
+    .set({
+      leaseExpiresAt: sql`
+        NOW() + (${leaseDurationMs} * INTERVAL '1 millisecond')
+      `,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, workerId),
+        sql`${outboxEvents.id} = ANY(${eventIds}::uuid[])`,
+      ),
+    );
+}
 }

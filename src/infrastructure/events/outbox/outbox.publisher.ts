@@ -140,26 +140,7 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
         ),
       );
   }
-
-  private async renewLeases(eventIds: string[]): Promise<void> {
-    if (eventIds.length === 0) return;
-
-    await this.db
-      .update(outboxEvents)
-      .set({
-        leaseExpiresAt: sql`
-        NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond')
-      `,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(outboxEvents.status, 'processing'),
-          eq(outboxEvents.lockedBy, this.workerId),
-          sql`${outboxEvents.id} = ANY(${eventIds}::uuid[])`,
-        ),
-      );
-  }
+  
 
   private async releaseUnprocessedEvents(
   events: ClaimedOutboxEvent[],
@@ -227,7 +208,8 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
 
         renewalInProgress = true;
 
-        void this.renewLeases(eventIds)
+        void this.outboxRepository
+  .renewLeases(this.workerId, eventIds, this.leaseDurationMs)
           .catch((error) => {
             this.logger.error(
               'Failed to renew outbox event leases',
