@@ -144,4 +144,68 @@ export class OutboxRepository {
       ),
     );
 }
+
+async markPublished(eventId: string, workerId: string): Promise<boolean> {
+  const rows = await this.db
+    .update(outboxEvents)
+    .set({
+      status: 'published',
+      publishedAt: new Date(),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.id, eventId),
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, workerId),
+      ),
+    )
+    .returning({ id: outboxEvents.id });
+
+  return rows.length > 0;
+}
+
+async markFailed(
+  eventId: string,
+  workerId: string,
+  attempts: number,
+  maxAttempts: number,
+  error: unknown,
+): Promise<boolean> {
+  const shouldDeadLetter = attempts >= maxAttempts;
+
+  const backoffMs = Math.min(
+    1_000 * 2 ** Math.max(attempts - 1, 0),
+    5 * 60 * 1_000,
+  );
+
+  const message =
+    error instanceof Error ? error.message : 'Unknown Kafka publishing error';
+
+  const rows = await this.db
+    .update(outboxEvents)
+    .set({
+      status: shouldDeadLetter ? 'dead_lettered' : 'pending',
+      availableAt: new Date(Date.now() + backoffMs),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: message.slice(0, 1000),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboxEvents.id, eventId),
+        eq(outboxEvents.status, 'processing'),
+        eq(outboxEvents.lockedBy, workerId),
+      ),
+    )
+    .returning({ id: outboxEvents.id });
+
+  return rows.length > 0;
+}
 }

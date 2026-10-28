@@ -57,68 +57,6 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
     });
   }
 
-  private async markPublished(eventId: string): Promise<boolean> {
-    const rows = await this.db
-      .update(outboxEvents)
-      .set({
-        status: 'published',
-        publishedAt: new Date(),
-        processingAt: null,
-        lockedBy: null,
-        leaseExpiresAt: null,
-        lastError: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(outboxEvents.id, eventId),
-          eq(outboxEvents.status, 'processing'),
-          eq(outboxEvents.lockedBy, this.workerId),
-        ),
-      )
-      .returning({ id: outboxEvents.id });
-
-    return rows.length > 0;
-  }
-
-  private async markFailed(
-    eventId: string,
-    attempts: number,
-    maxAttempts: number,
-    error: unknown,
-  ): Promise<boolean> {
-    const shouldDeadLetter = attempts >= maxAttempts;
-
-    const backoffMs = Math.min(
-      1_000 * 2 ** Math.max(attempts - 1, 0),
-      5 * 60 * 1_000,
-    );
-
-    const message =
-      error instanceof Error ? error.message : 'Unknown Kafka publishing error';
-
-    const rows = await this.db
-      .update(outboxEvents)
-      .set({
-        status: shouldDeadLetter ? 'dead_lettered' : 'pending',
-        availableAt: new Date(Date.now() + backoffMs),
-        processingAt: null,
-        lockedBy: null,
-        leaseExpiresAt: null,
-        lastError: message.slice(0, 1000),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(outboxEvents.id, eventId),
-          eq(outboxEvents.status, 'processing'),
-          eq(outboxEvents.lockedBy, this.workerId),
-        ),
-      )
-      .returning({ id: outboxEvents.id });
-
-    return rows.length > 0;
-  }
 
   private async deadLetterExhaustedEvents(): Promise<void> {
     await this.db
@@ -228,54 +166,59 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
           }
 
           // Phase 1: Publish to Kafka.
-          try {
-            await this.publishEvent(event);
-          } catch (error) {
-            try {
-              const updated = await this.markFailed(
-                event.id,
-                event.attempts,
-                event.maxAttempts,
-                error,
-              );
+             // Phase 1: Publish to Kafka.
+try {
+  await this.publishEvent(event);
+} catch (error) {
+  try {
+    const updated = await this.outboxRepository.markFailed(
+      event.id,
+      this.workerId,
+      event.attempts,
+      event.maxAttempts,
+      error,
+    );
 
-              if (!updated) {
-                this.logger.warn(
-                  `Lost ownership while handling failure for event ${event.id}`,
-                );
-              }
-            } catch (markFailedError) {
-              this.logger.error(
-                `Failed to record publishing failure for event ${event.id}`,
-                markFailedError instanceof Error
-                  ? markFailedError.stack
-                  : String(markFailedError),
-              );
-            }
+    if (!updated) {
+      this.logger.warn(
+        `Lost ownership while handling failure for event ${event.id}`,
+      );
+    }
+  } catch (markFailedError) {
+    this.logger.error(
+      `Failed to record publishing failure for event ${event.id}`,
+      markFailedError instanceof Error
+        ? markFailedError.stack
+        : String(markFailedError),
+    );
+  }
 
-            this.logger.error(
-              `Failed to publish outbox event ${event.id}`,
-              error instanceof Error ? error.stack : String(error),
-            );
+  this.logger.error(
+    `Failed to publish outbox event ${event.id}`,
+    error instanceof Error ? error.stack : String(error),
+  );
 
-            continue;
-          }
+  continue;
+}
 
-          // Phase 2: Kafka accepted the message; record success in PostgreSQL.
-          try {
-            const updated = await this.markPublished(event.id);
+// Phase 2: Kafka accepted the message; record success in PostgreSQL.
+try {
+  const updated = await this.outboxRepository.markPublished(
+    event.id,
+    this.workerId,
+  );
 
-            if (!updated) {
-              this.logger.warn(
-                `Lost ownership while marking event ${event.id} as published`,
-              );
-            }
-          } catch (error) {
-            this.logger.error(
-              `Kafka accepted event ${event.id}, but marking it published in PostgreSQL failed. The event may be delivered again after lease recovery.`,
-              error instanceof Error ? error.stack : String(error),
-            );
-          }
+  if (!updated) {
+    this.logger.warn(
+      `Lost ownership while marking event ${event.id} as published`,
+    );
+  }
+} catch (error) {
+  this.logger.error(
+    `Kafka accepted event ${event.id}, but marking it published in PostgreSQL failed. The event may be delivered again after lease recovery.`,
+    error instanceof Error ? error.stack : String(error),
+  );
+}
         }
       } finally {
         clearInterval(leaseTimer);
