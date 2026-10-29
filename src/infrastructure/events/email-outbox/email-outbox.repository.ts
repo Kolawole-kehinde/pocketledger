@@ -1,9 +1,9 @@
 
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, lt, or, sql } from 'drizzle-orm';
+import { and, count, eq, lt, or, sql } from 'drizzle-orm';
 import { DATABASE } from '../../../database/database.provider.js';
 import type { Database } from '../../../database/database.types.js';
-import { emailOutbox } from '../../../database/schema/email-outbox.schema.js';
+import { emailOutbox, EmailOutboxJob } from '../../../database/schema/email-outbox.schema.js';
 import type { ClaimedEmailOutboxJob, EmailOutboxTransaction} from './email-outbox.types.js';
 
 @Injectable()
@@ -193,6 +193,132 @@ async recoverExpiredLeases(): Promise<void> {
         sql`${emailOutbox.leaseExpiresAt} <= NOW()`,
       ),
     );
+}
+async renewLeases(
+  jobIds: string[],
+  workerId: string,
+): Promise<void> {
+  if (jobIds.length === 0) {
+    return;
+  }
+
+  await this.db
+    .update(emailOutbox)
+    .set({
+      leaseExpiresAt: sql`
+        NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond')
+      `,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.status, 'processing'),
+        eq(emailOutbox.lockedBy, workerId),
+        sql`${emailOutbox.id} IN (${sql.join(
+          jobIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`,
+      ),
+    );
+}
+async releaseUnprocessedJobs(
+  jobIds: string[],
+  workerId: string,
+): Promise<void> {
+  if (jobIds.length === 0) {
+    return;
+  }
+
+  await this.db
+    .update(emailOutbox)
+    .set({
+      status: 'pending',
+      availableAt: new Date(),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.status, 'processing'),
+        eq(emailOutbox.lockedBy, workerId),
+        sql`${emailOutbox.id} IN (${sql.join(
+          jobIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`,
+      ),
+    );
+}
+async recoverExhaustedJobs(): Promise<void> {
+  await this.db
+    .update(emailOutbox)
+    .set({
+      status: 'failed',
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: 'Processing lease expired after maximum attempts',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.status, 'processing'),
+        sql`${emailOutbox.leaseExpiresAt} <= NOW()`,
+        sql`${emailOutbox.attemptCount} >= ${emailOutbox.maxAttempts}`,
+      ),
+    );
+}
+
+async getPendingCount(): Promise<number> {
+  const [result] = await this.db
+    .select({ total: count() })
+    .from(emailOutbox)
+    .where(eq(emailOutbox.status, 'pending'));
+
+  return result.total;
+}
+
+async getFailedCount(): Promise<number> {
+  const [result] = await this.db
+    .select({ total: count() })
+    .from(emailOutbox)
+    .where(eq(emailOutbox.status, 'failed'));
+
+  return result.total;
+}
+async getJobById(jobId: string): Promise<EmailOutboxJob | null> {
+  const [job] = await this.db
+    .select()
+    .from(emailOutbox)
+    .where(eq(emailOutbox.id, jobId))
+    .limit(1);
+
+  return job ?? null;
+}
+async retryFailedJob(jobId: string): Promise<boolean> {
+  const result = await this.db
+    .update(emailOutbox)
+    .set({
+      status: 'pending',
+      attemptCount: 0,
+      availableAt: new Date(),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: null,
+      sentAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.id, jobId),
+        eq(emailOutbox.status, 'failed'),
+      ),
+    )
+    .returning({ id: emailOutbox.id });
+
+  return result.length > 0;
 }
 
 
