@@ -43,10 +43,20 @@ export const emailOutbox = pgTable(
       .default('pending'),
 
     attemptCount: integer('attempt_count').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(5),
 
     availableAt: timestamp('available_at', {
       withTimezone: true,
     }).notNull().defaultNow(),
+    processingAt: timestamp('processing_at', {
+  withTimezone: true,
+}),
+
+lockedBy: varchar('locked_by', { length: 255 }),
+
+leaseExpiresAt: timestamp('lease_expires_at', {
+  withTimezone: true,
+}),
 
     sentAt: timestamp('sent_at', {
       withTimezone: true,
@@ -67,6 +77,10 @@ export const emailOutbox = pgTable(
       table.status,
       table.availableAt,
     ),
+    index('email_outbox_status_lease_expires_at_idx').on(
+  table.status,
+  table.leaseExpiresAt,
+),
     index('email_outbox_created_at_idx').on(table.createdAt),
   ],
 );
