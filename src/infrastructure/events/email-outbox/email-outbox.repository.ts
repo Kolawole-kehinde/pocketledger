@@ -95,4 +95,105 @@ export class EmailOutboxRepository {
       });
     });
   }
+
+  
+async markSent( jobId: string, workerId: string): Promise<boolean> {
+  const result = await this.db
+    .update(emailOutbox)
+    .set({
+      status: 'sent',
+      sentAt: new Date(),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.id, jobId),
+        eq(emailOutbox.status, 'processing'),
+        eq(emailOutbox.lockedBy, workerId),
+      ),
+    )
+    .returning({ id: emailOutbox.id });
+
+  return result.length > 0;
+}
+
+async markFailed(
+  jobId: string,
+  workerId: string,
+  attemptCount: number,
+  maxAttempts: number,
+  error: unknown,
+): Promise<boolean> {
+
+  const permanentlyFailed = attemptCount >= maxAttempts;
+
+  const backoffMs = Math.min(
+    1_000 * 2 ** (attemptCount - 1),
+    5 * 60 * 1_000,
+  );
+
+  const message = error instanceof Error ? error.message : 'Unknown email delivery error';
+
+  const result = await this.db
+    .update(emailOutbox)
+    .set({
+      status: permanentlyFailed ? 'failed' : 'pending',
+      availableAt: permanentlyFailed
+        ? new Date()
+        : new Date(Date.now() + backoffMs),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: message.slice(0, 1_000),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.id, jobId),
+        eq(emailOutbox.status, 'processing'),
+        eq(emailOutbox.lockedBy, workerId),
+      ),
+    )
+    .returning({ id: emailOutbox.id });
+
+  return result.length > 0;
+}
+
+async recoverExpiredLeases(): Promise<void> {
+  await this.db
+    .update(emailOutbox)
+    .set({
+      status: sql`
+        CASE
+          WHEN ${emailOutbox.attemptCount} >= ${emailOutbox.maxAttempts}
+            THEN 'failed'::email_outbox_status
+          ELSE 'pending'::email_outbox_status
+        END
+      `,
+      availableAt: new Date(),
+      processingAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      lastError: sql`
+        CASE
+          WHEN ${emailOutbox.attemptCount} >= ${emailOutbox.maxAttempts}
+            THEN 'Worker lease expired after maximum attempts'
+          ELSE 'Worker lease expired before delivery completed'
+        END
+      `,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.status, 'processing'),
+        sql`${emailOutbox.leaseExpiresAt} <= NOW()`,
+      ),
+    );
+}
+
+
 }
