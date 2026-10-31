@@ -136,7 +136,12 @@ async markFailed(
     5 * 60 * 1_000,
   );
 
-  const message = error instanceof Error ? error.message : 'Unknown email delivery error';
+ const message =
+  error instanceof Error
+    ? error.name === 'InternalServerErrorException'
+      ? 'Email payload processing failed'
+      : 'Email delivery attempt failed'
+    : 'Unknown email delivery error';
 
   const result = await this.db
     .update(emailOutbox)
