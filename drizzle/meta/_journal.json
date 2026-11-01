@@ -71,6 +71,13 @@
       "when": 1793438805713,
       "tag": "0009_add_email_outbox_lease_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793530337724,
+      "tag": "0010_true_frog_thor",
+      "breakpoints": true
     }
   ]
 }

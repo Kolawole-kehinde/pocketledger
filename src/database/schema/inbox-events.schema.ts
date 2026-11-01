@@ -8,6 +8,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 export const inboxEventStatusEnum = pgEnum('inbox_event_status', [
@@ -33,6 +34,21 @@ export const inboxEvents = pgTable(
 
     schemaVersion: integer('schema_version').notNull().default(1),
 
+    aggregateType: varchar('aggregate_type', { length: 100 }).notNull(),
+
+    aggregateId: varchar('aggregate_id', { length: 255 }).notNull(),
+
+    payload: jsonb('payload')
+      .$type<Record<string, unknown>>()
+      .notNull(),
+
+    correlationId: uuid('correlation_id'),
+
+    occurredAt: timestamp('occurred_at', {
+      withTimezone: true,
+      mode: 'date',
+    }).notNull(),
+
     status: inboxEventStatusEnum('status')
       .notNull()
       .default('received'),
@@ -43,12 +59,14 @@ export const inboxEvents = pgTable(
 
     availableAt: timestamp('available_at', {
       withTimezone: true,
+      mode: 'date',
     })
       .notNull()
       .defaultNow(),
 
     processingAt: timestamp('processing_at', {
       withTimezone: true,
+      mode: 'date',
     }),
 
     claimToken: uuid('claim_token'),
@@ -57,28 +75,33 @@ export const inboxEvents = pgTable(
 
     leaseExpiresAt: timestamp('lease_expires_at', {
       withTimezone: true,
+      mode: 'date',
     }),
 
     receivedAt: timestamp('received_at', {
       withTimezone: true,
+      mode: 'date',
     })
       .notNull()
       .defaultNow(),
 
     processedAt: timestamp('processed_at', {
       withTimezone: true,
+      mode: 'date',
     }),
 
     failureReason: varchar('failure_reason', { length: 1000 }),
 
     createdAt: timestamp('created_at', {
       withTimezone: true,
+      mode: 'date',
     })
       .notNull()
       .defaultNow(),
 
     updatedAt: timestamp('updated_at', {
       withTimezone: true,
+      mode: 'date',
     })
       .notNull()
       .defaultNow(),
