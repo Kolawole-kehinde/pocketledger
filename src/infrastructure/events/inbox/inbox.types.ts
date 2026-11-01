@@ -32,12 +32,6 @@ export interface RecordInboxEventInput extends InboxInput {
   consumerName: string;
 }
 
-export interface ClaimInboxEventInput {
-  workerId: string;
-  consumerName: string;
-  leaseDuration: number;
-}
-
 // Result of recording an event
 export interface EventCreateResult {
   type: 'created';
@@ -72,3 +66,11 @@ export interface ClaimedInboxEvent {
   attempts: number;
   maxAttempts: number;
 }
+
+export interface ClaimInboxEventInput {
+  workerId: string;
+  consumerName: string;
+  leaseDuration: number;
+   batchSize: number;
+}
+
