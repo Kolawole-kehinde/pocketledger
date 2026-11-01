@@ -64,6 +64,13 @@
       "when": 1792945536100,
       "tag": "0008_exotic_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793438805713,
+      "tag": "0009_add_email_outbox_lease_columns",
+      "breakpoints": true
     }
   ]
 }

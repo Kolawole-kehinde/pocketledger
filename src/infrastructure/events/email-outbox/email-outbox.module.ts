@@ -13,9 +13,10 @@ import {
 
 import { SmtpEmailDeliveryProvider } from './smtp-email-delivery.provider.js';
 import { BrevoEmailDeliveryProvider } from './brevo-email-delivery.provider.js';
+import { DatabaseModule } from '../../../database/database.module.js';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, DatabaseModule],
   providers: [
     EmailOutboxRepository,
     EmailPayloadEncryptionService,
