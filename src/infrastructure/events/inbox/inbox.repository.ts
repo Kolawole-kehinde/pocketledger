@@ -11,7 +11,7 @@ import type {
   RecordEventResult,
   RecordInboxEventInput,
 } from './inbox.types.js';
-import { inboxEvents } from '../../../database/schema/inbox-events.schema.js';
+import { InboxEvent, inboxEvents } from '../../../database/schema/inbox-events.schema.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../../../database/database.types.js';
 
@@ -20,7 +20,7 @@ const MAX_LOOKUP_ATTEMPTS = 3;
 @Injectable()
 export class InboxRepository {
   private readonly batchSize = 100;
-  private readonly leastDuration = 60_00;
+  private readonly leaseDurationMs = 60_00;
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
   async recordEvent(
@@ -225,4 +225,74 @@ export class InboxRepository {
 
       return Boolean(updateRow);
   }
+
+
+async recoverExpiredClaims(
+  tx: InboxTransaction,
+  batchSize = this.batchSize,
+): Promise<number> {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new RangeError('batchSize must be a positive integer');
+  }
+
+  const result = await tx.execute(sql`
+    WITH expired_claims AS (
+      SELECT candidate.id
+      FROM inbox_events AS candidate
+      WHERE candidate.status = 'processing'
+        AND candidate.lease_expires_at <= NOW()
+      ORDER BY candidate.lease_expires_at ASC
+      LIMIT ${batchSize}
+      FOR UPDATE OF candidate SKIP LOCKED
+    )
+
+    UPDATE inbox_events AS inbox
+    SET
+      status = CASE
+        WHEN inbox.attempts >= inbox.max_attempts
+          THEN 'dead_lettered'::inbox_event_status
+        ELSE 'failed'::inbox_event_status
+      END,
+
+      available_at = CASE
+        WHEN inbox.attempts >= inbox.max_attempts
+          THEN inbox.available_at
+        ELSE
+          NOW() + (
+            LEAST(
+              1000 * POWER(
+                2,
+                GREATEST(inbox.attempts - 1, 0)
+              ),
+              300000
+            ) * INTERVAL '1 millisecond'
+          )
+      END,
+
+      failure_reason = 'Processing lease expired',
+      locked_by = NULL,
+      claim_token = NULL,
+      lease_expires_at = NULL,
+      processing_at = NULL,
+      updated_at = NOW()
+
+    FROM expired_claims
+    WHERE inbox.id = expired_claims.id
+
+    RETURNING inbox.id;
+  `);
+
+  return result.rows.length;
+};
+
+async getEventById(eventId: string, tx: InboxTransaction): Promise<InboxEvent | null>{
+        const [event] = await tx
+        .select()
+        .from(inboxEvents)
+        .where(
+            eq(inboxEvents.id, eventId)
+        )
+        .limit(1);
+        return event ?? null
+}
 }
