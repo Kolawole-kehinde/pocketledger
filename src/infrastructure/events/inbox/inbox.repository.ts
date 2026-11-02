@@ -6,6 +6,7 @@ import {
 import type {
   ClaimedInboxEvent,
   ClaimInboxEventInput,
+  EventStatus,
   InboxTransaction,
   RecordEventResult,
   RecordInboxEventInput,
@@ -18,8 +19,8 @@ const MAX_LOOKUP_ATTEMPTS = 3;
 
 @Injectable()
 export class InboxRepository {
-    private readonly batchSize = 100;
-    private readonly leastDuration = 60_00;
+  private readonly batchSize = 100;
+  private readonly leastDuration = 60_00;
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
   async recordEvent(
@@ -88,13 +89,11 @@ export class InboxRepository {
     );
   }
 
-
-
-async claimEvents(
-  input: ClaimInboxEventInput,
-  tx: InboxTransaction,
-): Promise<ClaimedInboxEvent[]> {
-  const result = await tx.execute(sql`
+  async claimEvents(
+    input: ClaimInboxEventInput,
+    tx: InboxTransaction,
+  ): Promise<ClaimedInboxEvent[]> {
+    const result = await tx.execute(sql`
     WITH candidates AS (
       SELECT candidate.id
       FROM inbox_events AS candidate
@@ -144,27 +143,86 @@ async claimEvents(
       inbox.max_attempts
   `);
 
-  return result.rows as ClaimedInboxEvent[];
-};
+    return result.rows as ClaimedInboxEvent[];
+  }
 
- async markProcessed(evenId: string, claimToken: string, tx: InboxTransaction): Promise<boolean>{
-     const [updateRow] = await tx.update(inboxEvents)
-     .set({
+  async markProcessed(
+    evenId: string,
+    claimToken: string,
+    tx: InboxTransaction,
+  ): Promise<boolean> {
+    const [updateRow] = await tx
+      .update(inboxEvents)
+      .set({
         status: 'processed',
         processedAt: new Date(),
         lockedBy: null,
         claimToken: null,
         leaseExpiresAt: null,
         processingAt: null,
-        updatedAt: new Date()
-     }).where(
+        updatedAt: new Date(),
+      })
+      .where(
         and(
-            eq(inboxEvents.id, evenId),
-            eq(inboxEvents.claimToken, claimToken),
-            eq(inboxEvents.status, 'processing')
-        )
-     ).returning({id: inboxEvents.id })
+          eq(inboxEvents.id, evenId),
+          eq(inboxEvents.claimToken, claimToken),
+          eq(inboxEvents.status, 'processing'),
+        ),
+      )
+      .returning({ id: inboxEvents.id });
 
-     return Boolean(updateRow)
- }
+    return Boolean(updateRow);
+  }
+
+  async markFailed(
+    eventId: string,
+    claimToken: string,
+    failureReason: string,
+    tx: InboxTransaction,
+  ): Promise<boolean> {
+    const [updateRow] = await tx
+      .update(inboxEvents)
+      .set({
+        status: sql<EventStatus>`
+          CASE
+           WHEN ${inboxEvents.attempts} >= ${inboxEvents.maxAttempts}
+            THEN 'dead_letter'::inbox_event_status
+            ELSE 'failed'::inbox_event_status
+            END
+        `,
+        failureReason,
+
+        availableAt: sql<Date>`
+          CASE
+          WHEN ${inboxEvents.attempts} >= ${inboxEvents.maxAttempts}
+           THEN ${inboxEvents.availableAt}
+           ELSE
+           NOW() + (
+             LEASE(
+                1000 * POWER(
+                    2,
+                    GREATEST($(inboxEvents.availableAt) -1, 0)
+                ),
+                30000
+             ) * INTERVAL '1 millisecond'
+           )
+           END
+        `,
+        lockedBy: null,
+        claimToken: null,
+        leaseExpiresAt: null,
+        processingAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(inboxEvents.id, eventId),
+          eq(inboxEvents.claimToken, claimToken),
+          eq(inboxEvents.status, 'processing'),
+        ),
+      )
+      .returning({ id: inboxEvents.id });
+
+      return Boolean(updateRow);
+  }
 }
