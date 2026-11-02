@@ -2,6 +2,7 @@
 import type { NodePgTransaction } from 'drizzle-orm/node-postgres';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import type * as schema from '../../../database/schema/index.js';
+import type { InboxEvent } from '../../../database/schema/inbox-events.schema.js';
 
 
 export type InboxTransaction = NodePgTransaction<
@@ -73,5 +74,10 @@ export interface ClaimInboxEventInput {
   consumerName: string;
   leaseDuration: number;
    batchSize: number;
+}
+
+export interface GetEventsByStatusResult {
+  events: InboxEvent[];
+  total: number;
 }
 
