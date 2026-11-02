@@ -10,7 +10,7 @@ import type {
   RecordEventResult,
   RecordInboxEventInput,
 } from './inbox.types.js';
-import type { inboxEvents } from '../../../database/schema/inbox-events.schema.js';
+import { inboxEvents } from '../../../database/schema/inbox-events.schema.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../../../database/database.types.js';
 
@@ -145,5 +145,26 @@ async claimEvents(
   `);
 
   return result.rows as ClaimedInboxEvent[];
-}
+};
+
+ async markProcessed(evenId: string, claimToken: string, tx: InboxTransaction): Promise<boolean>{
+     const [updateRow] = await tx.update(inboxEvents)
+     .set({
+        status: 'processed',
+        processedAt: new Date(),
+        lockedBy: null,
+        claimToken: null,
+        leaseExpiresAt: null,
+        processingAt: null,
+        updatedAt: new Date()
+     }).where(
+        and(
+            eq(inboxEvents.id, evenId),
+            eq(inboxEvents.claimToken, claimToken),
+            eq(inboxEvents.status, 'processing')
+        )
+     ).returning({id: inboxEvents.id })
+
+     return Boolean(updateRow)
+ }
 }
