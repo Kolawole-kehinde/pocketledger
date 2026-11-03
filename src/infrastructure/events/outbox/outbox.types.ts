@@ -27,5 +27,11 @@ export interface ClaimedOutboxEvent {
   occurredAt: Date;
   correlationId: string | null;
   attempts: number;
-   maxAttempts: number;
+  maxAttempts: number;
+  claimToken: string
+}
+
+export interface EventClaim {
+  id: string;
+  claimToken: string;
 }

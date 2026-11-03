@@ -1,5 +1,9 @@
-
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit} from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ClaimedOutboxEvent } from './outbox.types.js';
 import { OutboxRepository } from './outbox.repository.js';
@@ -15,8 +19,6 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private inFlightPoll: Promise<void> | undefined;
   private stopping = false;
-
-
 
   constructor(
     private readonly configService: ConfigService,
@@ -95,13 +97,14 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private async processBatch(
-    events: ClaimedOutboxEvent[],
-  ): Promise<void> {
+  private async processBatch(events: ClaimedOutboxEvent[]): Promise<void> {
     let nextIndex = 0;
     let renewalInProgress: Promise<void> | undefined;
 
-    const eventIds = events.map((event) => event.id);
+    const claims = events.map(({ id, claimToken }) => ({
+      id,
+      claimToken,
+    }));
 
     const leaseTimer = setInterval(() => {
       if (renewalInProgress) {
@@ -109,11 +112,8 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
       }
 
       renewalInProgress = this.outboxRepository
-        .renewLeases(
-          this.workerId,
-          eventIds,
-          this.leaseDurationMs,
-        )
+
+        .renewLeases(this.workerId, claims, this.leaseDurationMs)
         .catch((error: unknown) => {
           this.logger.error(
             'Failed to renew outbox event leases',
@@ -160,9 +160,7 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private async processEvent(
-    event: ClaimedOutboxEvent,
-  ): Promise<void> {
+  private async processEvent(event: ClaimedOutboxEvent): Promise<void> {
     try {
       await this.outboxPublishingService.publish(event);
     } catch (error) {
@@ -171,10 +169,10 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
           event.id,
           this.workerId,
           event.attempts,
+          event.claimToken,
           event.maxAttempts,
           error,
         );
-
         if (!updated) {
           this.logger.warn(
             `Lost ownership while handling failure for event ${event.id}`,
@@ -201,8 +199,8 @@ export class OutboxPublisher implements OnModuleInit, OnApplicationShutdown {
       const updated = await this.outboxRepository.markPublished(
         event.id,
         this.workerId,
+        event.claimToken,
       );
-
       if (!updated) {
         this.logger.warn(
           `Lost ownership while marking event ${event.id} as published`,

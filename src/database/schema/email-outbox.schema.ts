@@ -67,6 +67,7 @@ leaseExpiresAt: timestamp('lease_expires_at', {
     createdAt: timestamp('created_at', {
       withTimezone: true,
     }).notNull().defaultNow(),
+    claimToken: uuid('claim_token'),
 
     updatedAt: timestamp('updated_at', {
       withTimezone: true,

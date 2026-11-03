@@ -1,11 +1,8 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+
+import { Injectable, InternalServerErrorException} from '@nestjs/common';
 import type { EmailDeliveryMessage } from './email-delivery.provider.js';
 import type { EmailOutboxJob } from '../../../database/schema/email-outbox.schema.js';
-
-interface OtpEmailPayload {
-  otp: string;
-  expiresInMinutes: number;
-}
+import { OtpEmailPayloadSchema,SecurityNotificationPayloadSchema} from './email-template.validation.js';
 
 @Injectable()
 export class EmailTemplateRenderer {
@@ -32,12 +29,11 @@ export class EmailTemplateRenderer {
         );
 
       case 'security_notification':
-        throw new InternalServerErrorException(
-          'Security notification template is not implemented yet',
-        );
+        return this.renderSecurityNotification(recipient, payload);
 
       default: {
         const exhaustiveCheck: never = template;
+
         throw new InternalServerErrorException(
           `Unsupported email template: ${exhaustiveCheck}`,
         );
@@ -51,28 +47,22 @@ export class EmailTemplateRenderer {
     subject: string,
     intro: string,
   ): EmailDeliveryMessage {
-    
-    const otp = payload.otp;
-const expiresInMinutes = payload.expiresInMinutes;
+    const result = OtpEmailPayloadSchema.safeParse(payload);
 
-    if (
-      typeof otp !== 'string' ||
-      !/^\d{6}$/.test(otp) ||
-      typeof expiresInMinutes !== 'number' ||
-      !Number.isInteger(expiresInMinutes) ||
-      expiresInMinutes <= 0
-    ) {
+    if (!result.success) {
       throw new InternalServerErrorException(
         'Invalid OTP email payload',
       );
     }
 
+    const { otp, expiresInMinutes } = result.data;
+
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>${subject}</h2>
-        <p>${intro}</p>
+        <h2>${this.escapeHtml(subject)}</h2>
+        <p>${this.escapeHtml(intro)}</p>
         <p style="font-size: 28px; font-weight: bold; letter-spacing: 6px;">
-          ${otp}
+          ${this.escapeHtml(otp)}
         </p>
         <p>This code expires in ${expiresInMinutes} minutes.</p>
         <p>If you did not request this code, you can ignore this email.</p>
@@ -95,5 +85,79 @@ const expiresInMinutes = payload.expiresInMinutes;
       html,
       text,
     };
+  }
+
+  private renderSecurityNotification(
+    recipient: string,
+    payload: Record<string, unknown>,
+  ): EmailDeliveryMessage {
+    const result = SecurityNotificationPayloadSchema.safeParse(payload);
+
+    if (!result.success) {
+      throw new InternalServerErrorException(
+        'Invalid security notification payload',
+      );
+    }
+
+    const data = result.data;
+    const subject = data.title.replace(/[\r\n]/g, ' ').trim();
+
+    const details = [
+      `Event: ${data.eventType.replaceAll('_', ' ')}`,
+      `Time: ${new Date(data.occurredAt).toUTCString()}`,
+      ...(data.ipAddress ? [`IP address: ${data.ipAddress}`] : []),
+      ...(data.device ? [`Device: ${data.device}`] : []),
+    ];
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>${this.escapeHtml(data.title)}</h2>
+
+        <p>${this.escapeHtml(data.message)}</p>
+
+        <h3>Event details</h3>
+
+        <ul>
+          ${details
+            .map((detail) => `<li>${this.escapeHtml(detail)}</li>`)
+            .join('')}
+        </ul>
+
+        <p>
+          If you did not perform this action, please secure your account
+          immediately.
+        </p>
+      </div>
+    `;
+
+    const text = [
+      data.title,
+      '',
+      data.message,
+      '',
+      'Event details:',
+      ...details,
+      '',
+      'If you did not perform this action, please secure your account immediately.',
+    ].join('\n');
+
+    return {
+      to: recipient,
+      subject,
+      html,
+      text,
+    };
+  }
+
+  private escapeHtml(value: string): string {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+
+    return value.replace(/[&<>"']/g, (character) => entities[character]);
   }
 }

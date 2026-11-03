@@ -3,7 +3,6 @@ import { Test } from '@nestjs/testing';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { and, eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
-
 import { DatabaseModule } from '../src/database/database.module.js';
 import { DATABASE } from '../src/database/database.provider.js';
 import type { Database } from '../src/database/database.types.js';
@@ -17,6 +16,7 @@ import { EmailPayloadEncryptionService } from '../src/infrastructure/events/emai
 import { EmailOutboxWorker } from '../src/infrastructure/events/email-outbox/email-outbox.worker.js';
 import { EmailTemplateRenderer } from '../src/infrastructure/events/email-outbox/email-template.renderer.js';
 import { EMAIL_DELIVERY_PROVIDER } from '../src/infrastructure/events/email-outbox/email-delivery.provider.js';
+
 
 describe('EmailOutboxWorker integration', () => {
   let db: Database;
@@ -152,28 +152,31 @@ describe('EmailOutboxWorker integration', () => {
   expect(job).toBeDefined();
 
   const workerId = randomUUID();
+  const claimToken = randomUUID();
 
   // Simulate a job that has already been claimed for its first attempt.
   await db
-    .update(emailOutbox)
-    .set({
-      status: 'processing',
-      attemptCount: 1,
-      lockedBy: workerId,
-      processingAt: new Date(),
-      leaseExpiresAt: new Date(Date.now() + 60_000),
-    })
-    .where(eq(emailOutbox.id, job.id));
-
-  const claimedJob: ClaimedEmailOutboxJob = {
-    id: job.id,
-    recipient: job.recipient,
-    template: job.template,
-    encryptedPayload: job.encryptedPayload,
-    encryptionKeyVersion: job.encryptionKeyVersion,
+  .update(emailOutbox)
+  .set({
+    status: 'processing',
     attemptCount: 1,
-    maxAttempts: 5,
-  };
+    lockedBy: workerId,
+    claimToken,
+    processingAt: new Date(),
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+  })
+  .where(eq(emailOutbox.id, job.id));
+
+const claimedJob: ClaimedEmailOutboxJob = {
+  id: job.id,
+  recipient: job.recipient,
+  template: job.template,
+  claimToken,
+  encryptedPayload: job.encryptedPayload,
+  encryptionKeyVersion: job.encryptionKeyVersion,
+  attemptCount: 1,
+  maxAttempts: 5,
+};
 
   const failingProvider: EmailDeliveryProvider = {
     send: async () => {
@@ -397,28 +400,30 @@ it('should permanently fail an email after reaching maximum attempts', async () 
   expect(job).toBeDefined();
 
   const workerId = randomUUID();
-
+   const claimToken = randomUUID();
   // Simulate the job being claimed for its fifth attempt.
   await db
-    .update(emailOutbox)
-    .set({
-      status: 'processing',
+  .update(emailOutbox)
+  .set({
+    status: 'processing',
       attemptCount: 5,
-      lockedBy: workerId,
-      processingAt: new Date(),
-      leaseExpiresAt: new Date(Date.now() + 60_000),
-    })
-    .where(eq(emailOutbox.id, job.id));
+    lockedBy: workerId,
+    claimToken,
+    processingAt: new Date(),
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+  })
+  .where(eq(emailOutbox.id, job.id));
 
-  const claimedJob: ClaimedEmailOutboxJob = {
-    id: job.id,
-    recipient: job.recipient,
-    template: job.template,
-    encryptedPayload: job.encryptedPayload,
-    encryptionKeyVersion: job.encryptionKeyVersion,
-    attemptCount: 5,
-    maxAttempts: 5,
-  };
+const claimedJob: ClaimedEmailOutboxJob = {
+  id: job.id,
+  recipient: job.recipient,
+  template: job.template,
+  claimToken,
+  encryptedPayload: job.encryptedPayload,
+  encryptionKeyVersion: job.encryptionKeyVersion,
+  attemptCount: 5,
+  maxAttempts: 5,
+};
 
   const failingProvider: EmailDeliveryProvider = {
     send: async () => {

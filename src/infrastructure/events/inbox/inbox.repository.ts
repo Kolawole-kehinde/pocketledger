@@ -21,6 +21,7 @@ import {
 
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../../../database/database.types.js';
+import { ClaimedInboxEventsRowsSchema, ClaimInboxEventsInputSchema } from './inbox-event.schema.js';
 
 const MAX_LOOKUP_ATTEMPTS = 3;
 
@@ -97,82 +98,78 @@ export class InboxRepository {
     );
   }
 
-  async claimEvents(
-    input: ClaimInboxEventInput,
-    tx: InboxTransaction,
-  ): Promise<ClaimedInboxEvent[]> {
-    const result = await tx.execute(sql`
-      WITH candidates AS (
-        SELECT candidate.id
-        FROM inbox_events AS candidate
-        WHERE candidate.consumer_name = ${input.consumerName}
-          AND candidate.attempts < candidate.max_attempts
-          AND (
-            candidate.status = 'received'
-            OR (
-              candidate.status = 'failed'
-              AND candidate.available_at <= NOW()
-            )
-            OR (
-              candidate.status = 'processing'
-              AND candidate.lease_expires_at <= NOW()
-            )
-          )
-        ORDER BY candidate.available_at ASC, candidate.created_at ASC
-        LIMIT ${input.batchSize}
-        FOR UPDATE OF candidate SKIP LOCKED
-      )
-      UPDATE inbox_events AS inbox
-      SET
-        status = 'processing',
-        locked_by = ${input.workerId},
-        claim_token = gen_random_uuid(),
-        processing_at = NOW(),
-        lease_expires_at = NOW() + (
-          ${input.leaseDuration} * INTERVAL '1 second'
-        ),
-        attempts = inbox.attempts + 1,
-        updated_at = NOW()
-      FROM candidates
-      WHERE inbox.id = candidates.id
-      RETURNING
-        inbox.id,
-        inbox.event_id,
-        inbox.consumer_name,
-        inbox.event_type,
-        inbox.aggregate_type,
-        inbox.aggregate_id,
-        inbox.schema_version,
-        inbox.payload,
-        inbox.correlation_id,
-        inbox.occurred_at,
-        inbox.claim_token,
-        inbox.locked_by,
-        inbox.lease_expires_at,
-        inbox.attempts,
-        inbox.max_attempts
-    `);
+async claimEvents(
+  input: ClaimInboxEventInput,
+  tx: InboxTransaction,
+): Promise<ClaimedInboxEvent[]> {
+  const validatedInput = ClaimInboxEventsInputSchema.parse(input);
 
-    return result.rows.map((row) => ({
-      id: String(row.id),
-      eventId: String(row.eventId),
-      consumerName: String(row.consumerName),
-      eventType: String(row.eventType),
-      aggregateType: String(row.aggregateType),
-      aggregateId: String(row.aggregateId),
-      schemaVersion: Number(row.schemaVersion),
-      payload: row.payload as Record<string, unknown>,
-      correlationId:
-        row.correlationId == null ? null : String(row.correlationId),
-      occurredAt: new Date(String(row.occurredAt)),
-      claimToken: String(row.claimToken),
-      lockedBy: String(row.lockedBy),
-      leaseExpiresAt: new Date(String(row.leaseExpiresAt)),
-      attempts: Number(row.attempts),
-      maxAttempts: Number(row.maxAttempts),
-    }));
-  }
+  const result = await tx.execute(sql`
+    WITH candidates AS (
+      SELECT candidate.id
+      FROM inbox_events AS candidate
+      WHERE candidate.consumer_name = ${validatedInput.consumerName}
+        AND candidate.attempts < candidate.max_attempts
+        AND candidate.available_at <= NOW()
+        AND (
+          candidate.status = 'received'
+          OR candidate.status = 'failed'
+        )
+      ORDER BY candidate.available_at ASC, candidate.created_at ASC
+      LIMIT ${validatedInput.batchSize}
+      FOR UPDATE OF candidate SKIP LOCKED
+    )
+    UPDATE inbox_events AS inbox
+    SET
+      status = 'processing',
+      locked_by = ${validatedInput.workerId},
+      claim_token = gen_random_uuid(),
+      processing_at = NOW(),
+      lease_expires_at = NOW() + (
+        ${validatedInput.leaseDuration} * INTERVAL '1 second'
+      ),
+      attempts = inbox.attempts + 1,
+      updated_at = NOW()
+    FROM candidates
+    WHERE inbox.id = candidates.id
+    RETURNING
+      inbox.id AS id,
+      inbox.event_id AS "eventId",
+      inbox.consumer_name AS "consumerName",
+      inbox.event_type AS "eventType",
+      inbox.aggregate_type AS "aggregateType",
+      inbox.aggregate_id AS "aggregateId",
+      inbox.schema_version AS "schemaVersion",
+      inbox.payload AS payload,
+      inbox.correlation_id AS "correlationId",
+      inbox.occurred_at AS "occurredAt",
+      inbox.claim_token AS "claimToken",
+      inbox.locked_by AS "lockedBy",
+      inbox.lease_expires_at AS "leaseExpiresAt",
+      inbox.attempts AS attempts,
+      inbox.max_attempts AS "maxAttempts"
+  `);
 
+  const validatedRows = ClaimedInboxEventsRowsSchema.parse(result.rows);
+
+  return validatedRows.map((row) => ({
+    id: row.id,
+    eventId: row.eventId,
+    consumerName: row.consumerName,
+    eventType: row.eventType,
+    aggregateType: row.aggregateType,
+    aggregateId: row.aggregateId,
+    schemaVersion: row.schemaVersion,
+    payload: row.payload,
+    correlationId: row.correlationId,
+    occurredAt: row.occurredAt,
+    claimToken: row.claimToken,
+    lockedBy: row.lockedBy,
+    leaseExpiresAt: row.leaseExpiresAt,
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+  }));
+}
   async markProcessed(
     eventId: string,
     claimToken: string,
@@ -256,57 +253,57 @@ export class InboxRepository {
   }
 
   async recoverExpiredClaims(
-    tx: InboxTransaction,
-    batchSize = this.batchSize,
-  ): Promise<number> {
-    if (!Number.isInteger(batchSize) || batchSize <= 0) {
-      throw new RangeError('batchSize must be a positive integer');
-    }
-
-    const result = await tx.execute(sql`
-      WITH expired_claims AS (
-        SELECT candidate.id
-        FROM inbox_events AS candidate
-        WHERE candidate.status = 'processing'
-          AND candidate.lease_expires_at <= NOW()
-        ORDER BY candidate.lease_expires_at ASC
-        LIMIT ${batchSize}
-        FOR UPDATE OF candidate SKIP LOCKED
-      )
-      UPDATE inbox_events AS inbox
-      SET
-        status = CASE
-          WHEN inbox.attempts >= inbox.max_attempts
-            THEN 'dead_lettered'::inbox_event_status
-          ELSE 'failed'::inbox_event_status
-        END,
-        available_at = CASE
-          WHEN inbox.attempts >= inbox.max_attempts
-            THEN inbox.available_at
-          ELSE
-            NOW() + (
-              LEAST(
-                1000 * POWER(
-                  2,
-                  GREATEST(inbox.attempts - 1, 0)
-                ),
-                300000
-              ) * INTERVAL '1 millisecond'
-            )
-        END,
-        failure_reason = 'Processing lease expired',
-        locked_by = NULL,
-        claim_token = NULL,
-        lease_expires_at = NULL,
-        processing_at = NULL,
-        updated_at = NOW()
-      FROM expired_claims
-      WHERE inbox.id = expired_claims.id
-      RETURNING inbox.id;
-    `);
-
-    return result.rows.length;
+  tx: InboxTransaction,
+  batchSize = this.batchSize,
+): Promise<number> {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) {
+    throw new RangeError('batchSize must be a positive integer');
   }
+
+  const result = await tx.execute(sql`
+    WITH expired_claims AS (
+      SELECT candidate.id
+      FROM inbox_events AS candidate
+      WHERE candidate.status = 'processing'
+        AND candidate.lease_expires_at <= NOW()
+      ORDER BY candidate.lease_expires_at ASC
+      LIMIT ${batchSize}
+      FOR UPDATE OF candidate SKIP LOCKED
+    )
+    UPDATE inbox_events AS inbox
+    SET
+      status = CASE
+        WHEN inbox.attempts >= inbox.max_attempts
+          THEN 'dead_lettered'::inbox_event_status
+        ELSE 'failed'::inbox_event_status
+      END,
+      available_at = CASE
+        WHEN inbox.attempts >= inbox.max_attempts
+          THEN inbox.available_at
+        ELSE
+          NOW() + (
+            LEAST(
+              1000 * POWER(
+                2,
+                GREATEST(inbox.attempts - 1, 0)
+              ),
+              300000
+            ) * INTERVAL '1 millisecond'
+          )
+      END,
+      failure_reason = 'Processing lease expired',
+      locked_by = NULL,
+      claim_token = NULL,
+      lease_expires_at = NULL,
+      processing_at = NULL,
+      updated_at = NOW()
+    FROM expired_claims
+    WHERE inbox.id = expired_claims.id
+    RETURNING inbox.id;
+  `);
+
+  return result.rows.length;
+}
 
   async getEventById(
     eventId: string,

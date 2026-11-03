@@ -1,0 +1,1 @@
+ALTER TABLE "email_outbox" ADD COLUMN "claim_token" uuid;

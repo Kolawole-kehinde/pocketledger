@@ -37,7 +37,7 @@ export class BrevoEmailDeliveryProvider implements EmailDeliveryProvider {
     this.client = new BrevoClient({
       apiKey,
       timeoutInSeconds: 30,
-      maxRetries: 2,
+      maxRetries: 0,
     });
   }
 
