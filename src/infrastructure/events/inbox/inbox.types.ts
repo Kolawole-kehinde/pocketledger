@@ -81,3 +81,15 @@ export interface GetEventsByStatusResult {
   total: number;
 }
 
+export interface InboxLeaseClaim {
+  eventId: string;
+  claimToken: string;
+  lockedBy: string;
+}
+
+export interface RenewInboxLeasesInput {
+  consumerName: string;
+  claims: InboxLeaseClaim[];
+}
+export type RenewInboxLeasesResult = string[];
+

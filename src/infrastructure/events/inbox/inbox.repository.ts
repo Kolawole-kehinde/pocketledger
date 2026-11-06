@@ -12,6 +12,8 @@ import type {
   InboxTransaction,
   RecordEventResult,
   RecordInboxEventInput,
+  RenewInboxLeasesInput,
+  RenewInboxLeasesResult,
 } from './inbox.types.js';
 
 import {
@@ -352,4 +354,43 @@ async claimEvents(
       total: Number(countResult[0]?.total ?? 0),
     };
   }
+
+ async renewLeases(
+  input: RenewInboxLeasesInput,
+  tx: InboxTransaction,
+): Promise<RenewInboxLeasesResult> {
+  if (input.claims.length === 0) {
+    return [];
+  }
+
+  const ownershipConditions = input.claims.map((claim) =>
+    and(
+      eq(inboxEvents.eventId, claim.eventId),
+      eq(inboxEvents.claimToken, claim.claimToken),
+      eq(inboxEvents.lockedBy, claim.lockedBy),
+    ),
+  );
+
+  const updatedRows = await tx
+    .update(inboxEvents)
+    .set({
+      leaseExpiresAt: sql<Date>`
+        NOW() + (${this.leaseDurationMs} * INTERVAL '1 millisecond')
+      `,
+      updatedAt: sql<Date>`NOW()`,
+    })
+    .where(
+      and(
+        eq(inboxEvents.consumerName, input.consumerName),
+        eq(inboxEvents.status, 'processing'),
+        sql`${inboxEvents.leaseExpiresAt} > NOW()`,
+        sql`(${sql.join(ownershipConditions, sql` OR `)})`,
+      ),
+    )
+    .returning({
+      eventId: inboxEvents.eventId,
+    });
+
+  return updatedRows.map((row) => row.eventId);
+}
 }
