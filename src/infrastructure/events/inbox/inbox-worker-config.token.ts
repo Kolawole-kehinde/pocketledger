@@ -1,0 +1,1 @@
+export const INBOX_WORKER_CONFIG = Symbol('INBOX_WORKER_CONFIG')
