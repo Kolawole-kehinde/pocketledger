@@ -1,0 +1,1 @@
+export const INBOX_EVENT_HANDLER = Symbol('INBOX_EVENT_HANDLER');

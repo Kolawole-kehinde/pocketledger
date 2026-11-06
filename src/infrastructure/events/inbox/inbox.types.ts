@@ -93,5 +93,11 @@ export interface RenewInboxLeasesInput {
 }
 export type RenewInboxLeasesResult = string[];
 
-
-
+export interface InboxWorkerConfig {
+  consumerName: string;
+  batchSize: number;
+  leaseDuration: number;
+  concurrency: number;
+  pollingInterval: number;
+  maxPollingInterval: number;
+}
