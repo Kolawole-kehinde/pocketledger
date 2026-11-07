@@ -1,9 +1,9 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 import { and, count, eq, lt, or, sql } from 'drizzle-orm';
-import { DATABASE } from '../../../database/database.provider.js';
-import type { Database } from '../../../database/database.types.js';
-import { emailOutbox, EmailOutboxJob } from '../../../database/schema/email-outbox.schema.js';
+import { DATABASE } from '../../database/database.provider.js';
+import type { Database } from '../../database/database.types.js';
+import { emailOutbox, EmailOutboxJob } from '../../database/schema/email-outbox.schema.js';
 import type { ClaimedEmailOutboxJob, EmailOutboxTransaction} from './email-outbox.types.js';
 import { ClaimedEmailOutboxRowsSchema, EnqueueEmailInput, EnqueueEmailSchema } from './email-outbox.schema.js';
 

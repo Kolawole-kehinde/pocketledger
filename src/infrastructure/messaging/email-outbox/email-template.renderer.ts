@@ -1,7 +1,7 @@
 
 import { Injectable, InternalServerErrorException} from '@nestjs/common';
 import type { EmailDeliveryMessage } from './email-delivery.provider.js';
-import type { EmailOutboxJob } from '../../../database/schema/email-outbox.schema.js';
+import type { EmailOutboxJob } from '../../database/schema/email-outbox.schema.js';
 import { OtpEmailPayloadSchema,SecurityNotificationPayloadSchema} from './email-template.validation.js';
 
 @Injectable()

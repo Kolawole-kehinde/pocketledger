@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { DatabaseModule } from "../../../database/database.module.js";
+import { DatabaseModule } from "../../database/database.module.js";
 import { InboxRepository } from "./inbox.repository.js";
 import { INBOX_WORKER_CONFIG } from "./inbox-worker-config.token.js";
 import { InboxWorker } from "./inbox.worker.js";

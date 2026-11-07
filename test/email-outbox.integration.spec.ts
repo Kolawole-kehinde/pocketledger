@@ -3,19 +3,19 @@ import { Test } from '@nestjs/testing';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { and, eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { DatabaseModule } from '../src/database/database.module.js';
-import { DATABASE } from '../src/database/database.provider.js';
-import type { Database } from '../src/database/database.types.js';
+import { DatabaseModule } from '../src/infrastructure/database/database.module.js';
+import { DATABASE } from '../src/infrastructure/database/database.provider.js';
+import type { Database } from '../src/infrastructure/database/database.types.js';
 import { randomUUID } from 'node:crypto';
-import type { EmailDeliveryProvider } from '../src/infrastructure/events/email-outbox/email-delivery.provider.js';
-import type { ClaimedEmailOutboxJob } from '../src/infrastructure/events/email-outbox/email-outbox.types.js';
-import { emailOutbox } from '../src/database/schema/email-outbox.schema.js';
-import { EmailOutboxModule } from '../src/infrastructure/events/email-outbox/email-outbox.module.js';
-import { EmailOutboxRepository } from '../src/infrastructure/events/email-outbox/email-outbox.repository.js';
-import { EmailPayloadEncryptionService } from '../src/infrastructure/events/email-outbox/email-payload-encryption.service.js';
-import { EmailOutboxWorker } from '../src/infrastructure/events/email-outbox/email-outbox.worker.js';
-import { EmailTemplateRenderer } from '../src/infrastructure/events/email-outbox/email-template.renderer.js';
-import { EMAIL_DELIVERY_PROVIDER } from '../src/infrastructure/events/email-outbox/email-delivery.provider.js';
+import type { EmailDeliveryProvider } from '../src/infrastructure/messaging/email-outbox/email-delivery.provider.js';
+import type { ClaimedEmailOutboxJob } from '../src/infrastructure/messaging/email-outbox/email-outbox.types.js';
+import { emailOutbox } from '../src/infrastructure/database/schema/email-outbox.schema.js';
+import { EmailOutboxModule } from '../src/infrastructure/messaging/email-outbox/email-outbox.module.js';
+import { EmailOutboxRepository } from '../src/infrastructure/messaging/email-outbox/email-outbox.repository.js';
+import { EmailPayloadEncryptionService } from '../src/infrastructure/messaging/email-outbox/email-payload-encryption.service.js';
+import { EmailOutboxWorker } from '../src/infrastructure/messaging/email-outbox/email-outbox.worker.js';
+import { EmailTemplateRenderer } from '../src/infrastructure/messaging/email-outbox/email-template.renderer.js';
+import { EMAIL_DELIVERY_PROVIDER } from '../src/infrastructure/messaging/email-outbox/email-delivery.provider.js';
 
 
 describe('EmailOutboxWorker integration', () => {
@@ -50,7 +50,7 @@ describe('EmailOutboxWorker integration', () => {
           templateRenderer: EmailTemplateRenderer,
           deliveryProvider: typeof EMAIL_DELIVERY_PROVIDER extends never
             ? never
-            : import('../src/infrastructure/events/email-outbox/email-delivery.provider.js').EmailDeliveryProvider,
+            : import('../src/infrastructure/messaging/email-outbox/email-delivery.provider.js').EmailDeliveryProvider,
         ) => {
           const instance = new EmailOutboxWorker(
             configService,

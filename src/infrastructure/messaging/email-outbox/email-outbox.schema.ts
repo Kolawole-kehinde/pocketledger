@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { emailOutbox } from '../../../database/schema/email-outbox.schema.js';
+import { emailOutbox } from '../../database/schema/email-outbox.schema.js';
 
 const emailTemplateValues = emailOutbox.template.enumValues;
 

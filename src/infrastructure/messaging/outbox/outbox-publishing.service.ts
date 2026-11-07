@@ -1,7 +1,7 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 import type { Producer } from 'kafkajs';
-import { KAFKA_PRODUCER } from '../../kafka/kafka.constants.js';
+import { KAFKA_PRODUCER } from '../kafka/kafka.constants.js';
 import type { ClaimedOutboxEvent } from './outbox.types.js';
 
 @Injectable()

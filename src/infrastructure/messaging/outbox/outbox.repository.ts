@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
-import { DATABASE } from '../../../database/database.provider.js';
-import type { Database } from '../../../database/database.types.js';
-import { outboxEvents } from '../../../database/schema/outbox-events.schema.js';
+import { DATABASE } from '../../database/database.provider.js';
+import type { Database } from '../../database/database.types.js';
+import { outboxEvents } from '../../database/schema/outbox-events.schema.js';
 import type {
   ClaimedOutboxEvent,
   EventClaim,

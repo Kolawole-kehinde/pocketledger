@@ -19,10 +19,10 @@ import type {
 import {
   InboxEvent,
   inboxEvents,
-} from '../../../database/schema/inbox-events.schema.js';
+} from '../../database/schema/inbox-events.schema.js';
 
 import { and, count, desc, eq, sql } from 'drizzle-orm';
-import type { Database } from '../../../database/database.types.js';
+import type { Database } from '../../database/database.types.js';
 import { ClaimedInboxEventsRowsSchema, ClaimInboxEventsInputSchema } from './inbox-event.schema.js';
 
 const MAX_LOOKUP_ATTEMPTS = 3;

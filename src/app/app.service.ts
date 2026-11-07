@@ -5,8 +5,8 @@ import {
 } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { DATABASE } from '../database/database.provider.js';
-import type { Database } from '../database/database.types.js';
+import { DATABASE } from '../infrastructure/database/database.provider.js';
+import type { Database } from '../infrastructure/database/database.types.js';
 
 @Injectable()
 export class AppService {
