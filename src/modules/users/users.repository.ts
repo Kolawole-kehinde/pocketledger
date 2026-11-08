@@ -6,7 +6,8 @@ import {
   type User,
 } from '../../infrastructure/database/schema/users.schema.js';
 import { eq } from 'drizzle-orm';
-
+import type{ UpdateUserData } from './users.types.js';
+ 
 @Injectable()
 export class UsersRepository {
   constructor(@Inject('DATABASE') private readonly db: Database) {}
@@ -39,7 +40,7 @@ export class UsersRepository {
     
       return user ?? null
   };
-   async update(id: string, data: Partial<NewUser>): Promise<User | null>{
+   async update(id: string, data: UpdateUserData): Promise<User | null>{
        const [user] = await this.db
        .update(users)
        .set({
