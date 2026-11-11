@@ -1,4 +1,5 @@
 
+import { existsSync } from 'node:fs';
 import { Test } from '@nestjs/testing';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { and, eq } from 'drizzle-orm';
@@ -18,20 +19,23 @@ import { EmailTemplateRenderer } from '../src/infrastructure/messaging/email-out
 import { EMAIL_DELIVERY_PROVIDER } from '../src/infrastructure/messaging/email-outbox/email-delivery.provider.js';
 
 
-describe('EmailOutboxWorker integration', () => {
+// Vitest does not load the application's .env file, but the suite is collected
+// before the Nest config module runs. Load it here so TEST_EMAIL_RECIPIENT is
+// available at collection time; if it is genuinely unset the suite is skipped.
+if (existsSync('.env')) {
+  process.loadEnvFile('.env');
+}
+
+const recipient = process.env.TEST_EMAIL_RECIPIENT;
+
+describe.skipIf(!recipient)('EmailOutboxWorker integration', () => {
   let db: Database;
   let repository: EmailOutboxRepository;
   let encryptionService: EmailPayloadEncryptionService;
   let worker: EmailOutboxWorker;
   let jobId: string;
 
-  const recipient = process.env.TEST_EMAIL_RECIPIENT;
-
   beforeAll(async () => {
-    if (!recipient) {
-      throw new Error('TEST_EMAIL_RECIPIENT is not configured');
-    }
-
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
