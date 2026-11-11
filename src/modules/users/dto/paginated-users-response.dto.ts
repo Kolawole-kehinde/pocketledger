@@ -1,24 +1,17 @@
+import type { PaginatedUsers } from '../users.types.js';
+import { UserListItemResponseDto } from './user-list-item-response.dto.js';
 
-import type { UserListItem } from '../users.types.js';
 
-export class UserListItemResponseDto {
-  id: UserListItem['id'];
-  firstName: UserListItem['firstName'];
-  lastName: UserListItem['lastName'];
-  username: UserListItem['username'];
-  email: UserListItem['email'];
-  role: UserListItem['role'];
-  status: UserListItem['status'];
-  createdAt: UserListItem['createdAt'];
+export class PaginatedUsersResponseDto {
+  data: UserListItemResponseDto[];
 
-  constructor(user: UserListItem) {
-    this.id = user.id;
-    this.firstName = user.firstName;
-    this.lastName = user.lastName;
-    this.username = user.username;
-    this.email = user.email;
-    this.role = user.role;
-    this.status = user.status;
-    this.createdAt = user.createdAt;
+  meta: PaginatedUsers['meta'];
+
+  constructor(result: PaginatedUsers) {
+    this.data = result.data.map(
+      (user) => new UserListItemResponseDto(user),
+    );
+
+    this.meta = result.meta;
   }
 }
