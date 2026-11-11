@@ -29,8 +29,6 @@ import {
 import type {
   FindUsersOptions,
   UpdateUserData,
-  UserListFilters,
-  UserListItem,
   UserListResult,
 } from './users.types.js';
 
@@ -79,6 +77,18 @@ export class UsersRepository {
       .limit(1);
 
     return user ?? null;
+  }
+
+  async countByRole(
+    role: User['role'],
+    tx?: DatabaseTransaction,
+  ): Promise<number> {
+    const [result] = await this.executor(tx)
+      .select({ total: count() })
+      .from(users)
+      .where(eq(users.role, role));
+
+    return result?.total ?? 0;
   }
 
   async findByEmail(

@@ -6,6 +6,8 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+
+
 export interface CacheStats {
   size: number;
   maxEntries: number;

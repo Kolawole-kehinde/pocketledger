@@ -27,8 +27,10 @@
 
 ## API Documentation
 
-The security-event audit endpoints are documented in
-[docs/security-events.md](docs/security-events.md).
+- User, role and permission administration:
+  [docs/users-roles-permissions.md](docs/users-roles-permissions.md)
+- Security-event audit endpoints:
+  [docs/security-events.md](docs/security-events.md)
 
 ## Project setup
 

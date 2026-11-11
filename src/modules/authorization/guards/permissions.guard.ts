@@ -18,7 +18,7 @@ export class PermissionsGuard implements CanActivate {
     private readonly permissionCacheService: PermissionCacheService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(
       IS_PUBLIC_KEY,
       [context.getHandler(), context.getClass()],
@@ -51,20 +51,20 @@ export class PermissionsGuard implements CanActivate {
       });
     }
 
-    const allowed = requiredPermissions.every((permission) =>
-      this.permissionCacheService.hasPermission(
+    for (const permission of requiredPermissions) {
+      const allowed = await this.permissionCacheService.hasPermission(
         request.user.sub,
         request.user.role,
         permission,
-      ),
-    );
+      );
 
-    if (!allowed) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        code: 'FORBIDDEN',
-        message: 'You do not have permission to perform this action',
-      });
+      if (!allowed) {
+        throw new ForbiddenException({
+          statusCode: 403,
+          code: 'FORBIDDEN',
+          message: 'You do not have permission to perform this action',
+        });
+      }
     }
 
     return true;
