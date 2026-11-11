@@ -1,6 +1,6 @@
 
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, eq, lt, or, sql } from 'drizzle-orm';
+import { and, count, eq, or, sql } from 'drizzle-orm';
 import { DATABASE } from '../../database/database.provider.js';
 import type { Database } from '../../database/database.types.js';
 import { emailOutbox, EmailOutboxJob } from '../../database/schema/email-outbox.schema.js';
@@ -30,6 +30,40 @@ async enqueue(
     availableAt: validatedInput.availableAt ?? new Date(),
     maxAttempts: validatedInput.maxAttempts ?? 5,
   });
+}
+
+async cancelPending(
+  tx: EmailOutboxTransaction,
+  input: {
+    recipient: string;
+    template: EmailOutboxJob['template'];
+    reason: string;
+  },
+): Promise<number> {
+  const cancelled = await tx
+    .update(emailOutbox)
+    .set({
+      status: 'cancelled',
+      processingAt: null,
+      lockedBy: null,
+      claimToken: null,
+      leaseExpiresAt: null,
+      lastError: input.reason.slice(0, 1_000),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emailOutbox.recipient, input.recipient),
+        eq(emailOutbox.template, input.template),
+        or(
+          eq(emailOutbox.status, 'pending'),
+          eq(emailOutbox.status, 'processing'),
+        ),
+      ),
+    )
+    .returning({ id: emailOutbox.id });
+
+  return cancelled.length;
 }
 
 async claimBatch(workerId: string): Promise<ClaimedEmailOutboxJob[]> {

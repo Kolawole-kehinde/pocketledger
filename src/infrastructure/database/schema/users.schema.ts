@@ -16,10 +16,10 @@ export const userRoleEnum = pgEnum('user_role', [
 export const userStatusEnum = pgEnum('user_status', [
   'pending_verification',
   'active',
+  'inactive',
   'suspended',
   'closed',
 ]);
-
 
 
 export const users = pgTable(

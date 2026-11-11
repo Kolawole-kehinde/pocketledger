@@ -31,5 +31,3 @@ Desktop.ini
 .idea/
 .vscode/*
 !.vscode/extensions.json
-
-/generated/prisma

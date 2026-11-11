@@ -1,0 +1,1 @@
+ALTER TYPE "public"."email_outbox_status" ADD VALUE 'cancelled';

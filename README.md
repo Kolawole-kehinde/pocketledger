@@ -25,6 +25,19 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## API Documentation
+
+Interactive Swagger UI is served at `/docs` and the generated OpenAPI
+documents are available at `/docs/openapi.json` and
+`/docs/openapi.yaml`. Set `SWAGGER_PATH` to change the path and
+`SWAGGER_ENABLED` to toggle the docs (enabled by default outside
+production).
+
+The security-event audit endpoints are documented in
+[docs/security-events.md](docs/security-events.md). A step-by-step guide
+for exercising registration, login, refresh, and session management from
+Swagger UI is in [docs/auth-flow.md](docs/auth-flow.md).
+
 ## Project setup
 
 ```bash

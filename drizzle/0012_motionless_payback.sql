@@ -1,0 +1,2 @@
+ALTER TYPE "public"."security_event_type" ADD VALUE 'otp_verified' BEFORE 'otp_verification_failed';--> statement-breakpoint
+ALTER TYPE "public"."security_event_type" ADD VALUE 'registration_completed' BEFORE 'login_succeeded';

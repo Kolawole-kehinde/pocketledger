@@ -12,16 +12,20 @@ import { users } from './users.schema.js';
 
 export const securityEventTypeEnum = pgEnum('security_event_type', [
   'otp_requested',
+  'otp_verified',
   'otp_verification_failed',
+  'registration_completed',
   'login_succeeded',
   'login_failed',
   'session_created',
   'session_revoked',
+  'access_token_revoked',
   'refresh_token_rotated',
   'refresh_token_reuse_detected',
   'rate_limit_exceeded',
   'account_suspended',
   'account_reactivated',
+  'role_changed',
   'suspicious_activity_detected',
 ]);
 

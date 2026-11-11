@@ -1,0 +1,1 @@
+ALTER TYPE "public"."security_event_type" ADD VALUE 'role_changed' BEFORE 'suspicious_activity_detected';

@@ -35,7 +35,7 @@ export class EmailTemplateRenderer {
         const exhaustiveCheck: never = template;
 
         throw new InternalServerErrorException(
-          `Unsupported email template: ${exhaustiveCheck}`,
+          `Unsupported email template: ${String(exhaustiveCheck)}`,
         );
       }
     }

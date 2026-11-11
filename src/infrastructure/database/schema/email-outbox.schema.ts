@@ -6,14 +6,13 @@ import {
   uuid,
   varchar,
   text,
-  jsonb,
   integer,
   index,
 } from 'drizzle-orm/pg-core';
 
 export const emailOutboxStatusEnum = pgEnum(
   'email_outbox_status',
-  ['pending', 'processing', 'sent', 'failed'],
+  ['pending', 'processing', 'sent', 'failed', 'cancelled'],
 );
 
 export const emailTemplateEnum = pgEnum('email_template', [
