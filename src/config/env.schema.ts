@@ -5,9 +5,7 @@ const booleanFromString = z
   .transform((value) => value === 'true');
 
 const secret = (name: string) =>
-  z
-    .string()
-    .min(32, `${name} must be at least 32 characters long`);
+  z.string().min(32, `${name} must be at least 32 characters long`);
 
 export const envSchema = z.object({
   NODE_ENV: z
@@ -16,17 +14,13 @@ export const envSchema = z.object({
 
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
 
-  SWAGGER_ENABLED: booleanFromString.optional(),
-  SWAGGER_PATH: z.string().min(1).default('docs'),
-
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
   KAFKA_BROKERS: z
     .string()
     .default('localhost:9094')
     .refine(
-      (value) =>
-        value.split(',').every((broker) => broker.trim().length > 0),
+      (value) => value.split(',').every((broker) => broker.trim().length > 0),
       'KAFKA_BROKERS must contain valid, non-empty broker addresses',
     ),
 
@@ -54,7 +48,11 @@ export const envSchema = z.object({
     .default(15 * 60),
 
   OTP_HASH_SECRET: secret('OTP_HASH_SECRET'),
-  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(5 * 60),
+  OTP_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce
     .number()
@@ -94,11 +92,7 @@ export const envSchema = z.object({
     .positive()
     .default(5 * 60 * 1000),
 
-  CACHE_MAX_ENTRIES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(10_000),
+  CACHE_MAX_ENTRIES: z.coerce.number().int().positive().default(10_000),
   PERMISSION_CACHE_TTL_SECONDS: z.coerce
     .number()
     .int()
@@ -113,11 +107,7 @@ export const envSchema = z.object({
     .min(1, 'EMAIL_PAYLOAD_ENCRYPTION_ACTIVE_VERSION is required'),
 
   EMAIL_DELIVERY_DRIVER: z.enum(['smtp', 'brevo']).default('smtp'),
-  EMAIL_OUTBOX_POLL_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional(),
+  EMAIL_OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().optional(),
 
   SMTP_HOST: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),

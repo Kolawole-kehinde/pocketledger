@@ -1,5 +1,3 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
 import type { Session } from '../../../infrastructure/database/schema/sessions.schema.js';
 import { MessageResponseDto } from './message-response.dto.js';
 import { UserResponseDto } from '../../users/dto/user-response.dto.js';
@@ -7,19 +5,12 @@ import { UserResponseDto } from '../../users/dto/user-response.dto.js';
 export { MessageResponseDto } from './message-response.dto.js';
 
 export class AuthTokenResponseDto {
-  @ApiProperty({ description: 'Short-lived JWT access token.' })
   accessToken: string;
 
-  @ApiProperty({ example: 'Bearer' })
   tokenType = 'Bearer';
 
-  @ApiProperty({
-    description: 'Access token lifetime in seconds.',
-    example: 900,
-  })
   expiresIn: number;
 
-  @ApiProperty({ type: () => UserResponseDto })
   user: UserResponseDto;
 
   constructor(input: {
@@ -34,33 +25,20 @@ export class AuthTokenResponseDto {
 }
 
 export class SessionResponseDto {
-  @ApiProperty({ format: 'uuid' })
   id: string;
 
-  @ApiPropertyOptional({ nullable: true, example: 'Chrome on Windows' })
   deviceName: string | null;
 
-  @ApiPropertyOptional({
-    nullable: true,
-    example: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-  })
   userAgent: string | null;
 
-  @ApiPropertyOptional({ nullable: true, example: '203.0.113.10' })
   ipAddress: string | null;
 
-  @ApiProperty({ format: 'date-time' })
   createdAt: Date;
 
-  @ApiPropertyOptional({ format: 'date-time', nullable: true })
   lastActivityAt: Date | null;
 
-  @ApiProperty({ format: 'date-time' })
   expiresAt: Date;
 
-  @ApiProperty({
-    description: 'Whether this is the session making the request.',
-  })
   current: boolean;
 
   constructor(session: Session, currentSessionId: string) {
@@ -76,10 +54,8 @@ export class SessionResponseDto {
 }
 
 export class OtpRequestedResponseDto extends MessageResponseDto {
-  @ApiPropertyOptional({ example: 5 })
   expiresInMinutes?: number;
 
-  @ApiPropertyOptional({ example: 60 })
   resendAfterSeconds?: number;
 
   constructor(input: {

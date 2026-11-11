@@ -6,12 +6,6 @@ suspicious-activity events. Every event is written to the
 
 - **Base path:** `/security-events`
 - **Authentication:** Bearer access token (`Authorization: Bearer <token>`)
-- **Swagger UI:** `/docs` (configurable via `SWAGGER_PATH`)
-- **OpenAPI JSON:** `/docs/openapi.json`
-- **OpenAPI YAML:** `/docs/openapi.yaml`
-
-Documentation is enabled by default outside production and can be
-controlled with `SWAGGER_ENABLED`.
 
 ## Permissions
 

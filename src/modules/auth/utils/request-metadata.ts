@@ -51,9 +51,8 @@ export function extractBearerToken(
 /**
  * Reads the registration token from the Authorization header.
  *
- * Swagger UI (and some HTTP clients) send a bare token when the value is
- * pasted into a header parameter instead of the Authorize dialog, so accept
- * both `Bearer <token>` and a raw JWT.
+ * Some HTTP clients send a bare token instead of the `Bearer` scheme,
+ * so accept both `Bearer <token>` and a raw JWT.
  */
 export function extractRegistrationToken(
   authorizationHeader: string | undefined,
