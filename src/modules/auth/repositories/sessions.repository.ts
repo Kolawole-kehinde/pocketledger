@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gt, isNull, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import { DATABASE } from '../../../infrastructure/database/database.provider.js';
 import type {
   Database,
@@ -25,10 +25,7 @@ export class SessionsRepository {
   }
 
   async create(data: NewSession, tx: DatabaseTransaction): Promise<Session> {
-    const [session] = await tx
-      .insert(sessions)
-      .values(data)
-      .returning();
+    const [session] = await tx.insert(sessions).values(data).returning();
 
     return session;
   }
@@ -44,9 +41,7 @@ export class SessionsRepository {
       .where(eq(sessions.id, id))
       .limit(1);
 
-    const [session] = forUpdate
-      ? await query.for('update')
-      : await query;
+    const [session] = forUpdate ? await query.for('update') : await query;
 
     return session ?? null;
   }
@@ -117,12 +112,7 @@ export class SessionsRepository {
         revokeReason: reason,
         updatedAt: new Date(),
       })
-      .where(
-        and(
-          eq(sessions.id, id),
-          isNull(sessions.revokedAt),
-        ),
-      )
+      .where(and(eq(sessions.id, id), isNull(sessions.revokedAt)))
       .returning({ id: sessions.id });
 
     return revoked.length > 0;
@@ -140,21 +130,13 @@ export class SessionsRepository {
         revokeReason: reason,
         updatedAt: new Date(),
       })
-      .where(
-        and(
-          eq(sessions.userId, userId),
-          isNull(sessions.revokedAt),
-        ),
-      )
+      .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)))
       .returning({ id: sessions.id });
 
     return revoked.length;
   }
 
-  async revokeExpired(
-    now: Date,
-    tx: DatabaseTransaction,
-  ): Promise<number> {
+  async revokeExpired(now: Date, tx: DatabaseTransaction): Promise<number> {
     const revoked = await tx
       .update(sessions)
       .set({
@@ -162,14 +144,34 @@ export class SessionsRepository {
         revokeReason: 'session_expired',
         updatedAt: now,
       })
-      .where(
-        and(
-          isNull(sessions.revokedAt),
-          lt(sessions.expiresAt, now),
-        ),
-      )
+      .where(and(isNull(sessions.revokedAt), lt(sessions.expiresAt, now)))
       .returning({ id: sessions.id });
 
     return revoked.length;
+  }
+
+  async findActiveWithUserForUpdate(
+    sessionId: string,
+    tx: DatabaseTransaction,
+  ): Promise<{ session: Session; user: User } | null> {
+
+    const [result] = await tx.
+    select({
+       session: sessions,
+       user: users
+    })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(
+      and(
+        eq(sessions.id, sessionId),
+        isNull(sessions.revokedAt),
+        gt(sessions.expiresAt, sql`NOW()`),
+        eq(users.status, 'active')
+      )
+    )
+    .limit(1)
+    .for('update', { of: sessions });
+     return result ?? null
   }
 }
