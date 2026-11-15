@@ -2,7 +2,6 @@
 import { sql } from 'drizzle-orm';
 
 import {
-  boolean,
   check,
   foreignKey,
   pgEnum,
@@ -73,9 +72,11 @@ export const ledgerAccounts = pgTable(
     unique('ledger_accounts_wallet_id_unique').on(table.walletId),
     // Required as the referenced key for customer-only composite foreign keys.
 
-unique('ledger_accounts_id_owner_type_unique').on( table.id, table.ownerType,
+// Required as the referenced key for customer-only composite foreign keys.
+unique('ledger_accounts_id_owner_type_unique').on(
+  table.id,
+  table.ownerType,
 ),
-
     // Each system account definition has one ledger account per currency.
     unique('ledger_accounts_system_definition_currency_unique').on(
       table.systemAccountDefinitionId,
