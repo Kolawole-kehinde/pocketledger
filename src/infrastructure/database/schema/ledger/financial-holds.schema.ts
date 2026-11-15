@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   check,
+  foreignKey,
   index,
   jsonb,
   pgEnum,
@@ -14,7 +15,10 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-import { ledgerAccounts } from './ledger-accounts.schema.js';
+import {
+  ledgerAccounts,
+  ledgerAccountOwnerTypeEnum,
+} from './ledger-accounts.schema.js';
 
 export const financialHoldStatus = pgEnum('financial_hold_status', [
   'ACTIVE',
@@ -30,14 +34,16 @@ export const financialHolds = pgTable(
   {
     id: uuid('id').primaryKey(),
 
-    ledgerAccountId: uuid('ledger_account_id')
-      .notNull()
-      .references(() => ledgerAccounts.id, {
-        onDelete: 'restrict',
-        onUpdate: 'restrict',
-      }),
+    ledgerAccountId: uuid('ledger_account_id').notNull(),
 
-    amount: bigint('amount', { mode: 'bigint' }).notNull(),
+    ledgerAccountOwnerType: ledgerAccountOwnerTypeEnum(
+      'ledger_account_owner_type',
+    )
+      .notNull()
+      .default('CUSTOMER'),
+
+    amount: bigint('amount', { mode: 'bigint' })
+      .notNull(),
 
     capturedAmount: bigint('captured_amount', { mode: 'bigint' })
       .notNull()
@@ -84,6 +90,11 @@ export const financialHolds = pgTable(
       .on(table.sourceModule, table.sourceReference),
 
     check(
+      'financial_holds_customer_owner_type_check',
+      sql`${table.ledgerAccountOwnerType} = 'CUSTOMER'`,
+    ),
+
+    check(
       'financial_holds_amount_check',
       sql`${table.amount} > 0`,
     ),
@@ -103,12 +114,28 @@ export const financialHolds = pgTable(
       sql`${table.capturedAmount} + ${table.releasedAmount} <= ${table.amount}`,
     ),
 
+    foreignKey({
+      name: 'financial_holds_customer_account_fk',
+      columns: [
+        table.ledgerAccountId,
+        table.ledgerAccountOwnerType,
+      ],
+      foreignColumns: [
+        ledgerAccounts.id,
+        ledgerAccounts.ownerType,
+      ],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
+
     index('financial_holds_account_created_idx')
       .on(table.ledgerAccountId, table.createdAt),
 
     index('financial_holds_expiry_idx')
       .on(table.expiresAt)
-      .where(sql`${table.status} IN ('ACTIVE', 'PARTIALLY_SETTLED')`),
+      .where(
+        sql`${table.status} IN ('ACTIVE', 'PARTIALLY_SETTLED')`,
+      ),
   ],
 );
 
