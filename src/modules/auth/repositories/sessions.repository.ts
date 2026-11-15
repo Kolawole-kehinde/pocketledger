@@ -1,5 +1,13 @@
+
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  isNull,
+  sql,
+} from 'drizzle-orm';
 import { DATABASE } from '../../../infrastructure/database/database.provider.js';
 import type {
   Database,
@@ -24,8 +32,14 @@ export class SessionsRepository {
     return tx ?? this.db;
   }
 
-  async create(data: NewSession, tx: DatabaseTransaction): Promise<Session> {
-    const [session] = await tx.insert(sessions).values(data).returning();
+  async create(
+    data: NewSession,
+    tx: DatabaseTransaction,
+  ): Promise<Session> {
+    const [session] = await tx
+      .insert(sessions)
+      .values(data)
+      .returning();
 
     return session;
   }
@@ -41,11 +55,20 @@ export class SessionsRepository {
       .where(eq(sessions.id, id))
       .limit(1);
 
-    const [session] = forUpdate ? await query.for('update') : await query;
+    const [session] = forUpdate
+      ? await query.for('update')
+      : await query;
 
     return session ?? null;
   }
 
+  /**
+   * Checks session and user state.
+   *
+   * During refresh rotation, the session row has already been locked by
+   * findById(..., true). This query deliberately does not acquire another
+   * session lock.
+   */
   async findActiveWithUser(
     sessionId: string,
     tx?: DatabaseTransaction,
@@ -61,7 +84,7 @@ export class SessionsRepository {
         and(
           eq(sessions.id, sessionId),
           isNull(sessions.revokedAt),
-          gt(sessions.expiresAt, new Date()),
+          gt(sessions.expiresAt, sql`NOW()`),
           eq(users.status, 'active'),
         ),
       )
@@ -78,26 +101,48 @@ export class SessionsRepository {
         and(
           eq(sessions.userId, userId),
           isNull(sessions.revokedAt),
-          gt(sessions.expiresAt, new Date()),
+          gt(sessions.expiresAt, sql`NOW()`),
         ),
       )
-      .orderBy(desc(sessions.lastActivityAt), desc(sessions.createdAt));
+      .orderBy(
+        desc(sessions.lastActivityAt),
+        desc(sessions.createdAt),
+      );
   }
 
-  async touch(
+  /**
+   * Updates session activity and applies a sliding session TTL using
+   * PostgreSQL's clock.
+   */
+  async touchWithTtl(
     id: string,
-    lastActivityAt: Date,
-    expiresAt: Date,
+    sessionTtlSeconds: number,
     tx: DatabaseTransaction,
-  ): Promise<void> {
-    await tx
+  ): Promise<Session | null> {
+    if (
+      !Number.isSafeInteger(sessionTtlSeconds) ||
+      sessionTtlSeconds <= 0
+    ) {
+      throw new Error('Session TTL must be a positive integer');
+    }
+
+    const [updated] = await tx
       .update(sessions)
       .set({
-        lastActivityAt,
-        expiresAt,
-        updatedAt: new Date(),
+        lastActivityAt: sql<Date>`NOW()`,
+        expiresAt: sql<Date>`NOW() + (${sessionTtlSeconds} * INTERVAL '1 second')`,
+        updatedAt: sql<Date>`NOW()`,
       })
-      .where(eq(sessions.id, id));
+      .where(
+        and(
+          eq(sessions.id, id),
+          isNull(sessions.revokedAt),
+          gt(sessions.expiresAt, sql`NOW()`),
+        ),
+      )
+      .returning();
+
+    return updated ?? null;
   }
 
   async revoke(
@@ -105,17 +150,22 @@ export class SessionsRepository {
     reason: Session['revokeReason'],
     tx: DatabaseTransaction,
   ): Promise<boolean> {
-    const revoked = await tx
+    const [revoked] = await tx
       .update(sessions)
       .set({
-        revokedAt: new Date(),
+        revokedAt: sql<Date>`NOW()`,
         revokeReason: reason,
-        updatedAt: new Date(),
+        updatedAt: sql<Date>`NOW()`,
       })
-      .where(and(eq(sessions.id, id), isNull(sessions.revokedAt)))
+      .where(
+        and(
+          eq(sessions.id, id),
+          isNull(sessions.revokedAt),
+        ),
+      )
       .returning({ id: sessions.id });
 
-    return revoked.length > 0;
+    return Boolean(revoked);
   }
 
   async revokeAllForUser(
@@ -126,52 +176,40 @@ export class SessionsRepository {
     const revoked = await tx
       .update(sessions)
       .set({
-        revokedAt: new Date(),
+        revokedAt: sql<Date>`NOW()`,
         revokeReason: reason,
-        updatedAt: new Date(),
+        updatedAt: sql<Date>`NOW()`,
       })
-      .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)))
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          isNull(sessions.revokedAt),
+        ),
+      )
       .returning({ id: sessions.id });
 
     return revoked.length;
   }
 
-  async revokeExpired(now: Date, tx: DatabaseTransaction): Promise<number> {
+  async revokeExpired(
+    _now: Date,
+    tx: DatabaseTransaction,
+  ): Promise<number> {
     const revoked = await tx
       .update(sessions)
       .set({
-        revokedAt: now,
+        revokedAt: sql<Date>`NOW()`,
         revokeReason: 'session_expired',
-        updatedAt: now,
+        updatedAt: sql<Date>`NOW()`,
       })
-      .where(and(isNull(sessions.revokedAt), lt(sessions.expiresAt, now)))
+      .where(
+        and(
+          isNull(sessions.revokedAt),
+          sql`${sessions.expiresAt} <= NOW()`,
+        ),
+      )
       .returning({ id: sessions.id });
 
     return revoked.length;
-  }
-
-  async findActiveWithUserForUpdate(
-    sessionId: string,
-    tx: DatabaseTransaction,
-  ): Promise<{ session: Session; user: User } | null> {
-
-    const [result] = await tx.
-    select({
-       session: sessions,
-       user: users
-    })
-    .from(sessions)
-    .innerJoin(users, eq(sessions.userId, users.id))
-    .where(
-      and(
-        eq(sessions.id, sessionId),
-        isNull(sessions.revokedAt),
-        gt(sessions.expiresAt, sql`NOW()`),
-        eq(users.status, 'active')
-      )
-    )
-    .limit(1)
-    .for('update', { of: sessions });
-     return result ?? null
   }
 }

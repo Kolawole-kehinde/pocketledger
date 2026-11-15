@@ -1,21 +1,10 @@
-import {
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import {Injectable,UnauthorizedException,} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes, randomUUID } from 'node:crypto';
-import type {
-  AccessTokenPayload,
-  RegistrationTokenPayload,
-} from '../auth.types.js';
-import {
-  TOKEN_TYPE_ACCESS,
-  TOKEN_TYPE_REGISTRATION,
-} from '../auth.constants.js';
-import {
-  hashRefreshToken,
-} from '../utils/token-hash.js';
+import type { AccessTokenPayload,RegistrationTokenPayload} from '../auth.types.js';
+import {TOKEN_TYPE_ACCESS, TOKEN_TYPE_REGISTRATION,} from '../auth.constants.js';
+import { hashRefreshToken,} from '../utils/token-hash.js';
 
 const ACCESS_TOKEN_JTI_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

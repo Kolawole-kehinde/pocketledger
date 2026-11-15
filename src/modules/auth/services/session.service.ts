@@ -1,7 +1,6 @@
+
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  DATABASE,
-} from '../../../infrastructure/database/database.provider.js';
+import { DATABASE } from '../../../infrastructure/database/database.provider.js';
 import type {
   Database,
   DatabaseTransaction,
@@ -9,8 +8,12 @@ import type {
 import type {
   Session,
 } from '../../../infrastructure/database/schema/sessions.schema.js';
-import type { AccessTokenRevocation } from '../../../infrastructure/database/schema/access-token-revocations.schema.js';
-import type { User } from '../../../infrastructure/database/schema/users.schema.js';
+import type {
+  AccessTokenRevocation,
+} from '../../../infrastructure/database/schema/access-token-revocations.schema.js';
+import type {
+  User,
+} from '../../../infrastructure/database/schema/users.schema.js';
 import type {
   AuthTransaction,
   RefreshRotationResult,
@@ -23,7 +26,9 @@ import {
   authNotFound,
   authUnauthorized,
 } from '../utils/auth-errors.js';
-import type { RequestMetadata } from '../utils/request-metadata.js';
+import type {
+  RequestMetadata,
+} from '../utils/request-metadata.js';
 import { AuthAuditRepository } from '../repositories/auth-audit.repository.js';
 import { RefreshTokensRepository } from '../repositories/refresh-tokens.repository.js';
 import { SessionsRepository } from '../repositories/sessions.repository.js';
@@ -47,8 +52,10 @@ export class SessionService {
     metadata: RequestMetadata,
   ): Promise<SessionCreationResult> {
     const now = new Date();
+
     const sessionExpiresAt = new Date(
-      now.getTime() + this.tokenService.getSessionTtlSeconds() * 1_000,
+      now.getTime() +
+        this.tokenService.getSessionTtlSeconds() * 1_000,
     );
 
     const session = await this.sessionsRepository.create(
@@ -64,8 +71,10 @@ export class SessionService {
     );
 
     const refreshToken = this.tokenService.generateRefreshToken();
+
     const refreshTokenExpiresAt = new Date(
-      now.getTime() + this.tokenService.getRefreshTokenTtlSeconds() * 1_000,
+      now.getTime() +
+        this.tokenService.getRefreshTokenTtlSeconds() * 1_000,
     );
 
     const refreshTokenRecord = await this.refreshTokensRepository.create(
@@ -136,237 +145,230 @@ export class SessionService {
     };
   }
 
-  async rotateRefreshToken(
-    refreshToken: string,
-    metadata: RequestMetadata,
-  ): Promise<{
-    user: User;
-    sessionId: string;
-    refreshToken: string;
-    refreshTokenExpiresAt: Date;
-    accessToken: string;
-    expiresIn: number;
-  }> {
-    const tokenHash = this.tokenService.hashRefreshToken(refreshToken);
-    const now = new Date();
+   
+async rotateRefreshToken(
+  refreshToken: string,
+  metadata: RequestMetadata,
+): Promise<{
+  user: User;
+  sessionId: string;
+  refreshToken: string;
+  refreshTokenExpiresAt: Date;
+  accessToken: string;
+  expiresIn: number;
+}> {
+  const tokenHash = this.tokenService.hashRefreshToken(refreshToken);
 
-    const result: RefreshRotationResult = await this.db.transaction(
-      async (tx) => {
-        const existing =
-          await this.refreshTokensRepository.findByHash(
-            tokenHash,
-            tx,
-            true,
-          );
+  const result = await this.db.transaction(async (tx) => {
+    // 1. Discover the owning session without locking the token.
+    const discoveredToken =
+      await this.refreshTokensRepository.findByHash(
+        tokenHash,
+        tx,
+      );
 
-        if (!existing) {
-          return { status: 'invalid' } as const;
-        }
-
-        if (existing.revokedAt) {
-          await this.handleRefreshTokenReuse(
-            tx,
-            existing.sessionId,
-            metadata,
-          );
-
-          return { status: 'reuse' } as const;
-        }
-
-        if (existing.expiresAt.getTime() <= now.getTime()) {
-          const session = await this.sessionsRepository.findById(
-            existing.sessionId,
-            tx,
-            true,
-          );
-
-          await this.refreshTokensRepository.revokeAllForSession(
-            existing.sessionId,
-            tx,
-          );
-          await this.sessionsRepository.revoke(
-            existing.sessionId,
-            'session_expired',
-            tx,
-          );
-
-          await this.authAuditRepository.recordSecurityEvent(
-            {
-              type: 'session_revoked',
-              severity: 'low',
-              userId: session?.userId ?? null,
-              ipAddress: metadata.ipAddress,
-              userAgent: metadata.userAgent,
-              metadata: {
-                sessionId: existing.sessionId,
-                reason: 'session_expired',
-              },
-            },
-            tx,
-          );
-
-          return { status: 'expired' } as const;
-        }
-
-        const active = await this.sessionsRepository.findActiveWithUser(
-          existing.sessionId,
-          tx,
-        );
-
-        if (!active) {
-          const session = await this.sessionsRepository.findById(
-            existing.sessionId,
-            tx,
-            true,
-          );
-
-          await this.refreshTokensRepository.revokeAllForSession(
-            existing.sessionId,
-            tx,
-          );
-
-          await this.authAuditRepository.recordSecurityEvent(
-            {
-              type: 'suspicious_activity_detected',
-              severity: 'high',
-              userId: session?.userId ?? null,
-              ipAddress: metadata.ipAddress,
-              userAgent: metadata.userAgent,
-              metadata: {
-                reason: 'refresh_token_for_inactive_session',
-                sessionId: existing.sessionId,
-              },
-            },
-            tx,
-          );
-
-          return { status: 'invalid' } as const;
-        }
-
-        const nextRefreshToken = this.tokenService.generateRefreshToken();
-        const refreshTokenExpiresAt = new Date(
-          now.getTime() +
-            this.tokenService.getRefreshTokenTtlSeconds() * 1_000,
-        );
-
-        const nextRecord = await this.refreshTokensRepository.create(
-          {
-            sessionId: existing.sessionId,
-            tokenHash:
-              this.tokenService.hashRefreshToken(nextRefreshToken),
-            expiresAt: refreshTokenExpiresAt,
-          },
-          tx,
-        );
-
-        const revoked = await this.refreshTokensRepository.revokeAndReplace(
-          existing.id,
-          nextRecord.id,
-          tx,
-        );
-
-        if (!revoked) {
-          await this.handleRefreshTokenReuse(
-            tx,
-            existing.sessionId,
-            metadata,
-          );
-
-          return { status: 'reuse' } as const;
-        }
-
-        await this.sessionsRepository.touch(
-          existing.sessionId,
-          now,
-          new Date(
-            now.getTime() +
-              this.tokenService.getSessionTtlSeconds() * 1_000,
-          ),
-          tx,
-        );
-
-        await this.authAuditRepository.recordSecurityEvent(
-          {
-            type: 'refresh_token_rotated',
-            severity: 'low',
-            userId: active.user.id,
-            ipAddress: metadata.ipAddress,
-            userAgent: metadata.userAgent,
-            metadata: {
-              sessionId: existing.sessionId,
-            },
-          },
-          tx,
-        );
-
-        return {
-          status: 'rotated' as const,
-          user: active.user,
-          sessionId: existing.sessionId,
-          refreshToken: nextRefreshToken,
-          refreshTokenExpiresAt,
-        };
-      },
-    );
-
-    switch (result.status) {
-      case 'invalid':
-        throw authUnauthorized(
-          'INVALID_REFRESH_TOKEN',
-          AUTH_MESSAGES.invalidRefreshToken,
-        );
-
-      case 'expired':
-        throw authUnauthorized(
-          'REFRESH_TOKEN_EXPIRED',
-          AUTH_MESSAGES.invalidRefreshToken,
-        );
-
-      case 'reuse':
-        throw authUnauthorized(
-          'REFRESH_TOKEN_REUSE',
-          AUTH_MESSAGES.refreshTokenReuse,
-        );
-
-      case 'rotated':
-        break;
+    if (!discoveredToken) {
+      return { status: 'invalid' } as const;
     }
 
-    const accessToken = await this.tokenService.signAccessToken({
-      userId: result.user.id,
-      sessionId: result.sessionId,
-      email: result.user.email,
-      role: result.user.role,
-    });
-
-    return {
-      user: result.user,
-      sessionId: result.sessionId,
-      refreshToken: result.refreshToken,
-      refreshTokenExpiresAt: result.refreshTokenExpiresAt,
-      accessToken,
-      expiresIn: this.tokenService.getAccessTokenTtlSeconds(),
-    };
-  }
-
-  private async handleRefreshTokenReuse(
-    tx: DatabaseTransaction,
-    sessionId: string,
-    metadata: RequestMetadata,
-  ): Promise<void> {
+    // 2. Lock the session first.
     const session = await this.sessionsRepository.findById(
-      sessionId,
+      discoveredToken.sessionId,
       tx,
       true,
     );
 
+    if (!session) {
+      return { status: 'invalid' } as const;
+    }
+
+    // 3. Re-read and lock the token after acquiring the session lock.
+    const existing = await this.refreshTokensRepository.findByHash(
+      tokenHash,
+      tx,
+      true,
+    );
+
+    if (!existing || existing.sessionId !== session.id) {
+      return { status: 'invalid' } as const;
+    }
+
+    // 4. Detect reuse only when the revoked token was replaced.
+    if (existing.revokedAt) {
+      if (!existing.replacedByTokenId) {
+        return { status: 'invalid' } as const;
+      }
+
+      await this.handleRefreshTokenReuse(
+        tx,
+        session,
+        metadata,
+      );
+
+      return { status: 'reuse' } as const;
+    }
+
+    // 5. Validate the session and associated user.
+    const active = await this.sessionsRepository.findActiveWithUser(
+      session.id,
+      tx,
+    );
+
+    if (!active) {
+      await this.refreshTokensRepository.revokeAllForSession(
+        session.id,
+        tx,
+      );
+
+      return { status: 'invalid' } as const;
+    }
+
+    // 6. Check refresh-token expiry using PostgreSQL time.
+    if (
+      await this.refreshTokensRepository.isExpired(
+        existing.id,
+        tx,
+      )
+    ) {
+      await this.refreshTokensRepository.revoke(
+        existing.id,
+        tx,
+      );
+
+      return { status: 'expired' } as const;
+    }
+
+    // 7. Extend the session using PostgreSQL time.
+    const touchedSession =
+      await this.sessionsRepository.touchWithTtl(
+        session.id,
+        this.tokenService.getSessionTtlSeconds(),
+        tx,
+      );
+
+    if (!touchedSession) {
+      return { status: 'invalid' } as const;
+    }
+
+    // 8. Revoke the old token before inserting its replacement.
+    const revoked = await this.refreshTokensRepository.revoke(
+      existing.id,
+      tx,
+    );
+
+    if (!revoked) {
+      throw new Error(
+        'Refresh token state changed unexpectedly during rotation',
+      );
+    }
+
+    // 9. Generate and persist the replacement refresh token.
+    const nextRefreshToken =
+      this.tokenService.generateRefreshToken();
+
+    const nextRecord =
+      await this.refreshTokensRepository.createWithTtl(
+        session.id,
+        this.tokenService.hashRefreshToken(nextRefreshToken),
+        this.tokenService.getRefreshTokenTtlSeconds(),
+        tx,
+      );
+
+    // 10. Link the old token to its replacement.
+    const linked =
+      await this.refreshTokensRepository.linkReplacement(
+        existing.id,
+        nextRecord.id,
+        tx,
+      );
+
+    if (!linked) {
+      throw new Error(
+        'Could not link the replacement refresh token',
+      );
+    }
+
+    // 11. Record successful rotation in the same transaction.
+    await this.authAuditRepository.recordSecurityEvent(
+      {
+        type: 'refresh_token_rotated',
+        severity: 'low',
+        userId: active.user.id,
+        ipAddress: metadata.ipAddress,
+        userAgent: metadata.userAgent,
+        metadata: {
+          sessionId: session.id,
+        },
+      },
+      tx,
+    );
+
+    // 12. Sign the access token BEFORE the transaction commits.
+    // If signing fails, the transaction rolls back, restoring the
+    // previous refresh token and removing the replacement.
+    const accessToken = await this.tokenService.signAccessToken({
+      userId: active.user.id,
+      sessionId: session.id,
+      email: active.user.email,
+      role: active.user.role,
+    });
+
+    return {
+      status: 'rotated' as const,
+      user: active.user,
+      sessionId: session.id,
+      refreshToken: nextRefreshToken,
+      refreshTokenExpiresAt: nextRecord.expiresAt,
+      accessToken,
+      expiresIn: this.tokenService.getAccessTokenTtlSeconds(),
+    };
+  });
+
+  switch (result.status) {
+    case 'invalid':
+      throw authUnauthorized(
+        'INVALID_REFRESH_TOKEN',
+        AUTH_MESSAGES.invalidRefreshToken,
+      );
+
+    case 'expired':
+      throw authUnauthorized(
+        'REFRESH_TOKEN_EXPIRED',
+        AUTH_MESSAGES.invalidRefreshToken,
+      );
+
+    case 'reuse':
+      throw authUnauthorized(
+        'REFRESH_TOKEN_REUSE',
+        AUTH_MESSAGES.refreshTokenReuse,
+      );
+
+    case 'rotated':
+      return {
+        user: result.user,
+        sessionId: result.sessionId,
+        refreshToken: result.refreshToken,
+        refreshTokenExpiresAt: result.refreshTokenExpiresAt,
+        accessToken: result.accessToken,
+        expiresIn: result.expiresIn,
+      };
+  }
+}
+
+
+  private async handleRefreshTokenReuse(
+    tx: DatabaseTransaction,
+    session: Session,
+    metadata: RequestMetadata,
+  ): Promise<void> {
     await this.sessionsRepository.revoke(
-      sessionId,
+      session.id,
       'refresh_token_reuse',
       tx,
     );
+
     await this.refreshTokensRepository.revokeAllForSession(
-      sessionId,
+      session.id,
       tx,
     );
 
@@ -374,11 +376,11 @@ export class SessionService {
       {
         type: 'refresh_token_reuse_detected',
         severity: 'critical',
-        userId: session?.userId ?? null,
+        userId: session.userId,
         ipAddress: metadata.ipAddress,
         userAgent: metadata.userAgent,
         metadata: {
-          sessionId,
+          sessionId: session.id,
         },
       },
       tx,
@@ -495,7 +497,10 @@ export class SessionService {
           tx,
         );
 
-      await this.refreshTokensRepository.revokeAllForUser(userId, tx);
+      await this.refreshTokensRepository.revokeAllForUser(
+        userId,
+        tx,
+      );
 
       if (currentAccessToken) {
         await this.accessTokenRevocationService.revoke(
@@ -532,7 +537,8 @@ export class SessionService {
 
   private accessTokenExpiry(): Date {
     return new Date(
-      Date.now() + this.tokenService.getAccessTokenTtlSeconds() * 1_000,
+      Date.now() +
+        this.tokenService.getAccessTokenTtlSeconds() * 1_000,
     );
   }
 
@@ -546,7 +552,12 @@ export class SessionService {
       reason: AccessTokenRevocation['reason'];
     },
   ): Promise<void> {
-    await this.sessionsRepository.revoke(session.id, reason, tx);
+    await this.sessionsRepository.revoke(
+      session.id,
+      reason,
+      tx,
+    );
+
     await this.refreshTokensRepository.revokeAllForSession(
       session.id,
       tx,
