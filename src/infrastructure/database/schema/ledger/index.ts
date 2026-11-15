@@ -7,4 +7,5 @@ export * from './system-account-definitions.schema.js';
 export * from './journal-transactions.schema.js';
 export * from './ledger-entries.schema.js';
 export * from './journal-reversals.schema.js';
+export * from './journal-reversal-entry-allocations.schema.js';
 
