@@ -10,4 +10,8 @@ export * from './journal-reversals.schema.js';
 export * from './journal-reversal-entry-allocations.schema.js';
 export * from './financial-holds.schema.js';
 export * from './hold-operations.schema.js';
+export * from './ledger-reconciliation-discrepancies.schema.js';
+export * from './ledger-reconciliation-runs.schema.js';
+export * from './ledger_reconciliation_run_accounts.schema.js';
+
 

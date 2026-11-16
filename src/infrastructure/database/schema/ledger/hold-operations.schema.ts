@@ -1,8 +1,10 @@
 
 import { sql } from 'drizzle-orm';
+
 import {
   bigint,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -28,31 +30,21 @@ export const holdOperations = pgTable(
   {
     id: uuid('id').primaryKey(),
 
-    holdId: uuid('hold_id')
-      .notNull()
-      .references(() => financialHolds.id, {
-        onDelete: 'restrict',
-        onUpdate: 'restrict',
-      }),
+    holdId: uuid('hold_id').notNull(),
 
-    reference: varchar('reference', { length: 100 })
-      .notNull(),
+    currency: varchar('currency', { length: 3 }).notNull(),
 
-    operationType: holdOperationType('operation_type')
-      .notNull(),
+    reference: varchar('reference', { length: 100 }).notNull(),
 
-    amount: bigint('amount', { mode: 'bigint' })
-      .notNull(),
+    operationType: holdOperationType('operation_type').notNull(),
 
-    sequenceNumber: integer('sequence_number')
-      .notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
 
-    journalTransactionId: uuid('journal_transaction_id')
-      .references(() => journalTransactions.id, {
-        onDelete: 'restrict',
-        onUpdate: 'restrict',
-      }),
+    sequenceNumber: integer('sequence_number').notNull(),
 
+    journalTransactionId: uuid('journal_transaction_id'),
+
+    // User FK will be added when the users schema is available.
     performedBy: uuid('performed_by'),
 
     reason: text('reason').notNull(),
@@ -64,11 +56,33 @@ export const holdOperations = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique('hold_operations_reference_unique')
-      .on(table.reference),
+    foreignKey({
+      name: 'hold_operations_hold_currency_fk',
+      columns: [table.holdId, table.currency],
+      foreignColumns: [financialHolds.id, financialHolds.currency],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
 
-    unique('hold_operations_hold_sequence_unique')
-      .on(table.holdId, table.sequenceNumber),
+    // A capture journal must use the hold's currency.
+    // For RELEASE, journalTransactionId is NULL and this FK is skipped.
+    foreignKey({
+      name: 'hold_operations_journal_currency_fk',
+      columns: [table.journalTransactionId, table.currency],
+      foreignColumns: [
+        journalTransactions.id,
+        journalTransactions.currency,
+      ],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
+
+    unique('hold_operations_reference_unique').on(table.reference),
+
+    unique('hold_operations_hold_sequence_unique').on(
+      table.holdId,
+      table.sequenceNumber,
+    ),
 
     check(
       'hold_operations_amount_check',
@@ -96,15 +110,23 @@ export const holdOperations = pgTable(
     ),
 
     check(
+      'hold_operations_reference_not_empty_check',
+      sql`length(trim(${table.reference})) > 0`,
+    ),
+
+    check(
       'hold_operations_reason_not_empty_check',
       sql`length(trim(${table.reason})) > 0`,
     ),
 
-    index('hold_operations_hold_created_idx')
-      .on(table.holdId, table.createdAt),
+    index('hold_operations_hold_created_idx').on(
+      table.holdId,
+      table.createdAt,
+    ),
 
-    index('hold_operations_journal_transaction_idx')
-      .on(table.journalTransactionId),
+    index('hold_operations_journal_transaction_idx').on(
+      table.journalTransactionId,
+    ),
   ],
 );
 

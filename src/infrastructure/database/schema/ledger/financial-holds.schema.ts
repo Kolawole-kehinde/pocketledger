@@ -1,5 +1,6 @@
 
 import { sql } from 'drizzle-orm';
+
 import {
   bigint,
   check,
@@ -42,8 +43,9 @@ export const financialHolds = pgTable(
       .notNull()
       .default('CUSTOMER'),
 
-    amount: bigint('amount', { mode: 'bigint' })
-      .notNull(),
+    currency: varchar('currency', { length: 3 }).notNull(),
+
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
 
     capturedAmount: bigint('captured_amount', { mode: 'bigint' })
       .notNull()
@@ -57,17 +59,15 @@ export const financialHolds = pgTable(
       .notNull()
       .default('ACTIVE'),
 
-    reference: varchar('reference', { length: 100 })
-      .notNull(),
+    reference: varchar('reference', { length: 100 }).notNull(),
 
-    sourceModule: varchar('source_module', { length: 50 })
-      .notNull(),
+    sourceModule: varchar('source_module', { length: 50 }).notNull(),
 
-    sourceReference: varchar('source_reference', { length: 150 })
-      .notNull(),
+    sourceReference: varchar('source_reference', { length: 150 }).notNull(),
 
     reason: text('reason').notNull(),
 
+    // User FK will be added when the users schema is available.
     createdBy: uuid('created_by'),
 
     expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -83,11 +83,18 @@ export const financialHolds = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique('financial_holds_reference_unique')
-      .on(table.reference),
+    unique('financial_holds_reference_unique').on(table.reference),
 
-    unique('financial_holds_source_operation_unique')
-      .on(table.sourceModule, table.sourceReference),
+    unique('financial_holds_source_operation_unique').on(
+      table.sourceModule,
+      table.sourceReference,
+    ),
+
+    // Required for the composite FK from hold_operations.
+    unique('financial_holds_id_currency_unique').on(
+      table.id,
+      table.currency,
+    ),
 
     check(
       'financial_holds_customer_owner_type_check',
@@ -101,35 +108,117 @@ export const financialHolds = pgTable(
 
     check(
       'financial_holds_captured_amount_check',
-      sql`${table.capturedAmount} >= 0`,
+      sql`
+        ${table.capturedAmount} >= 0
+        AND ${table.capturedAmount} <= ${table.amount}
+      `,
     ),
 
     check(
       'financial_holds_released_amount_check',
-      sql`${table.releasedAmount} >= 0`,
+      sql`
+        ${table.releasedAmount} >= 0
+        AND ${table.releasedAmount} <=
+          ${table.amount} - ${table.capturedAmount}
+      `,
+    ),
+
+    // Enforce status consistency with captured and released amounts.
+    check(
+      'financial_holds_status_amount_consistency_check',
+      sql`
+        (
+          ${table.status} = 'ACTIVE'
+          AND ${table.capturedAmount} = 0
+          AND ${table.releasedAmount} = 0
+        )
+        OR
+        (
+          ${table.status} = 'PARTIALLY_SETTLED'
+          AND (
+            ${table.capturedAmount} > 0
+            OR ${table.releasedAmount} > 0
+          )
+          AND ${table.releasedAmount} <
+            ${table.amount} - ${table.capturedAmount}
+        )
+        OR
+        (
+          ${table.status} = 'CAPTURED'
+          AND ${table.capturedAmount} = ${table.amount}
+          AND ${table.releasedAmount} = 0
+        )
+        OR
+        (
+          ${table.status} = 'RELEASED'
+          AND ${table.capturedAmount} = 0
+          AND ${table.releasedAmount} = ${table.amount}
+        )
+        OR
+        (
+          ${table.status} = 'SETTLED'
+          AND ${table.capturedAmount} > 0
+          AND ${table.releasedAmount} > 0
+          AND ${table.releasedAmount} =
+            ${table.amount} - ${table.capturedAmount}
+        )
+        OR
+        (
+          ${table.status} = 'EXPIRED'
+          AND ${table.releasedAmount} > 0
+          AND ${table.releasedAmount} =
+            ${table.amount} - ${table.capturedAmount}
+        )
+      `,
     ),
 
     check(
-      'financial_holds_settled_amount_check',
-      sql`${table.capturedAmount} + ${table.releasedAmount} <= ${table.amount}`,
+      'financial_holds_reference_not_empty_check',
+      sql`length(trim(${table.reference})) > 0`,
     ),
 
+    check(
+      'financial_holds_source_module_not_empty_check',
+      sql`length(trim(${table.sourceModule})) > 0`,
+    ),
+
+    check(
+      'financial_holds_source_reference_not_empty_check',
+      sql`length(trim(${table.sourceReference})) > 0`,
+    ),
+
+    check(
+      'financial_holds_reason_not_empty_check',
+      sql`length(trim(${table.reason})) > 0`,
+    ),
+
+    check(
+      'financial_holds_expiry_after_creation_check',
+      sql`${table.expiresAt} IS NULL OR ${table.expiresAt} > ${table.createdAt}`,
+    ),
+
+    // Ensure the referenced account is a customer-owned ledger account.
     foreignKey({
       name: 'financial_holds_customer_account_fk',
-      columns: [
-        table.ledgerAccountId,
-        table.ledgerAccountOwnerType,
-      ],
-      foreignColumns: [
-        ledgerAccounts.id,
-        ledgerAccounts.ownerType,
-      ],
+      columns: [table.ledgerAccountId, table.ledgerAccountOwnerType],
+      foreignColumns: [ledgerAccounts.id, ledgerAccounts.ownerType],
     })
       .onDelete('restrict')
       .onUpdate('restrict'),
 
-    index('financial_holds_account_created_idx')
-      .on(table.ledgerAccountId, table.createdAt),
+    // Ensure the hold uses the account's currency.
+    foreignKey({
+      name: 'financial_holds_account_currency_fk',
+      columns: [table.ledgerAccountId, table.currency],
+      foreignColumns: [ledgerAccounts.id, ledgerAccounts.currency],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
+
+    index('financial_holds_account_created_idx').on(
+      table.ledgerAccountId,
+      table.createdAt,
+    ),
 
     index('financial_holds_expiry_idx')
       .on(table.expiresAt)
