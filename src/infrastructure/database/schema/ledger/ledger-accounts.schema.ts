@@ -77,6 +77,11 @@ unique('ledger_accounts_id_owner_type_unique').on(
   table.id,
   table.ownerType,
 ),
+
+unique('ledger_accounts_id_currency_unique').on(
+  table.id,
+  table.currency,
+),
     // Each system account definition has one ledger account per currency.
     unique('ledger_accounts_system_definition_currency_unique').on(
       table.systemAccountDefinitionId,

@@ -1,8 +1,11 @@
 
 import { sql } from 'drizzle-orm';
+
 import {
   bigint,
   check,
+  foreignKey,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -25,19 +28,10 @@ export const ledgerEntries = pgTable(
   'ledger_entries',
   {
     id: uuid('id').primaryKey(),
-    journalTransactionId: uuid('journal_transaction_id')
-      .notNull()
-      .references(() => journalTransactions.id, {
-        onDelete: 'restrict',
-        onUpdate: 'restrict',
-      }),
 
-    ledgerAccountId: uuid('ledger_account_id')
-      .notNull()
-      .references(() => ledgerAccounts.id, {
-        onDelete: 'restrict',
-        onUpdate: 'restrict',
-      }),
+    journalTransactionId: uuid('journal_transaction_id').notNull(),
+
+    ledgerAccountId: uuid('ledger_account_id').notNull(),
 
     entryType: entryType('entry_type').notNull(),
 
@@ -56,6 +50,36 @@ export const ledgerEntries = pgTable(
       .defaultNow(),
   },
   (table) => [
+    // Ensure the entry currency matches its journal currency.
+    foreignKey({
+      name: 'ledger_entries_journal_currency_fk',
+      columns: [
+        table.journalTransactionId,
+        table.currency,
+      ],
+      foreignColumns: [
+        journalTransactions.id,
+        journalTransactions.currency,
+      ],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
+
+    // Ensure the entry currency matches its ledger account currency.
+    foreignKey({
+      name: 'ledger_entries_account_currency_fk',
+      columns: [
+        table.ledgerAccountId,
+        table.currency,
+      ],
+      foreignColumns: [
+        ledgerAccounts.id,
+        ledgerAccounts.currency,
+      ],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
+
     check(
       'ledger_entries_amount_check',
       sql`${table.amount} > 0`,
@@ -66,12 +90,22 @@ export const ledgerEntries = pgTable(
       sql`${table.sequenceNumber} > 0`,
     ),
 
-    unique('ledger_entries_journal_sequence_unique').on(
-      table.journalTransactionId,
-      table.sequenceNumber,
-    ),
+    unique('ledger_entries_journal_sequence_unique')
+      .on(
+        table.journalTransactionId,
+        table.sequenceNumber,
+      ),
+
+    // Supports account transaction history and chronological queries.
+    index('ledger_entries_account_created_idx')
+      .on(
+        table.ledgerAccountId,
+        table.createdAt,
+        table.id,
+      ),
   ],
 );
 
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+
 export type NewLedgerEntry = typeof ledgerEntries.$inferInsert;

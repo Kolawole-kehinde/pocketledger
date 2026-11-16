@@ -1,4 +1,17 @@
-import { pgEnum, pgTable, unique, uuid, varchar, text, jsonb, timestamp } from 'drizzle-orm/pg-core';
+
+import { sql } from 'drizzle-orm';
+
+import {
+  check,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 
 import { currencies } from './currencies.schema.js';
 
@@ -56,15 +69,45 @@ export const journalTransactions = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique('journal_transactions_reference_unique').on(table.reference),
+    unique('journal_transactions_reference_unique')
+      .on(table.reference),
 
-    unique('journal_transactions_source_operation_unique').on(
-      table.sourceModule,
-      table.sourceReference,
-      table.postingPurpose,
+    unique('journal_transactions_source_operation_unique')
+      .on(
+        table.sourceModule,
+        table.sourceReference,
+        table.postingPurpose,
+      ),
+
+    // Required as the referenced key for the composite
+    // currency foreign key in ledger_entries.
+    unique('journal_transactions_id_currency_unique')
+      .on(table.id, table.currency),
+
+    check(
+      'journal_transactions_reference_not_empty_check',
+      sql`length(trim(${table.reference})) > 0`,
+    ),
+
+    check(
+      'journal_transactions_source_module_not_empty_check',
+      sql`length(trim(${table.sourceModule})) > 0`,
+    ),
+
+    check(
+      'journal_transactions_source_reference_not_empty_check',
+      sql`length(trim(${table.sourceReference})) > 0`,
+    ),
+
+    check(
+      'journal_transactions_posting_purpose_not_empty_check',
+      sql`length(trim(${table.postingPurpose})) > 0`,
     ),
   ],
 );
 
-export type JournalTransaction = typeof journalTransactions.$inferSelect;
-export type NewJournalTransaction = typeof journalTransactions.$inferInsert;
+export type JournalTransaction =
+  typeof journalTransactions.$inferSelect;
+
+export type NewJournalTransaction =
+  typeof journalTransactions.$inferInsert;
