@@ -1,9 +1,11 @@
+
 import { sql } from 'drizzle-orm';
 
 import {
   check,
   index,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -11,9 +13,9 @@ import {
   unique,
   uuid,
   varchar,
-  numeric,
 } from 'drizzle-orm/pg-core';
 
+import { users } from '../users.schema.js';
 import { ledgerAccounts } from './ledger-accounts.schema.js';
 import { ledgerReconciliationRuns } from './ledger-reconciliation-runs.schema.js';
 
@@ -31,6 +33,16 @@ export const reconciliationDiscrepancyType = pgEnum(
 export const reconciliationDiscrepancyStatus = pgEnum(
   'reconciliation_discrepancy_status',
   ['OPEN', 'INVESTIGATING', 'RESOLVED', 'ACCEPTED'],
+);
+
+export const reconciliationDiscrepancySubjectType = pgEnum(
+  'reconciliation_discrepancy_subject_type',
+  [
+    'LEDGER_ACCOUNT',
+    'JOURNAL_TRANSACTION',
+    'BALANCE_PROJECTION',
+    'JOURNAL_ENTRY_SET',
+  ],
 );
 
 export const ledgerReconciliationDiscrepancies = pgTable(
@@ -55,10 +67,17 @@ export const ledgerReconciliationDiscrepancies = pgTable(
       },
     ),
 
-    subjectReference: varchar('subject_reference', { length: 100 }),
+    subjectType: reconciliationDiscrepancySubjectType(
+      'subject_type',
+    ).notNull(),
 
-    discrepancyType:
-      reconciliationDiscrepancyType('discrepancy_type').notNull(),
+    subjectReference: varchar('subject_reference', {
+      length: 150,
+    }).notNull(),
+
+    discrepancyType: reconciliationDiscrepancyType(
+      'discrepancy_type',
+    ).notNull(),
 
     expectedValue: numeric('expected_value', {
       precision: 38,
@@ -75,13 +94,18 @@ export const ledgerReconciliationDiscrepancies = pgTable(
       scale: 0,
     }),
 
-    status: reconciliationDiscrepancyStatus('status').notNull().default('OPEN'),
+    status: reconciliationDiscrepancyStatus('status')
+      .notNull()
+      .default('OPEN'),
 
     description: text('description').notNull(),
 
     resolutionReason: text('resolution_reason'),
 
-    resolvedBy: uuid('resolved_by'),
+    resolvedBy: uuid('resolved_by').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
 
     detectedAt: timestamp('detected_at', {
       withTimezone: true,
@@ -101,16 +125,48 @@ export const ledgerReconciliationDiscrepancies = pgTable(
     ),
 
     check(
+      'ledger_reconciliation_discrepancies_reference_not_empty_check',
+      sql`length(trim(${table.reference})) > 0`,
+    ),
+
+    check(
+      'ledger_reconciliation_discrepancies_subject_reference_not_empty_check',
+      sql`length(trim(${table.subjectReference})) > 0`,
+    ),
+
+    check(
       'ledger_reconciliation_discrepancies_subject_check',
       sql`
         (
-          ${table.ledgerAccountId} IS NOT NULL
-          AND ${table.subjectReference} IS NULL
+          ${table.subjectType} = 'LEDGER_ACCOUNT'
+          AND ${table.ledgerAccountId} IS NOT NULL
         )
         OR
         (
-          ${table.ledgerAccountId} IS NULL
-          AND ${table.subjectReference} IS NOT NULL
+          ${table.subjectType} <> 'LEDGER_ACCOUNT'
+          AND ${table.ledgerAccountId} IS NULL
+        )
+      `,
+    ),
+
+    check(
+      'ledger_reconciliation_discrepancies_description_not_empty_check',
+      sql`length(trim(${table.description})) > 0`,
+    ),
+
+    check(
+      'ledger_reconciliation_discrepancies_values_check',
+      sql`
+        (
+          ${table.expectedValue} IS NULL
+          AND ${table.actualValue} IS NULL
+          AND ${table.difference} IS NULL
+        )
+        OR
+        (
+          ${table.expectedValue} IS NOT NULL
+          AND ${table.actualValue} IS NOT NULL
+          AND ${table.difference} IS NOT NULL
         )
       `,
     ),
@@ -130,6 +186,14 @@ export const ledgerReconciliationDiscrepancies = pgTable(
           AND ${table.resolutionReason} IS NOT NULL
           AND length(trim(${table.resolutionReason})) > 0
         )
+      `,
+    ),
+
+    check(
+      'ledger_reconciliation_discrepancies_resolution_time_check',
+      sql`
+        ${table.resolvedAt} IS NULL
+        OR ${table.resolvedAt} >= ${table.detectedAt}
       `,
     ),
 

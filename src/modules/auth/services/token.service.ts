@@ -44,25 +44,26 @@ export class TokenService {
     userId: string;
     sessionId: string;
     email: string;
-    role: AccessTokenPayload['role'];
+    roles: AccessTokenPayload['roles'];
   }): Promise<string> {
+    const roles = Array.isArray(input.roles) && input.roles.length > 0
+      ? input.roles
+      : ['customer'];
+
     return this.jwtService.signAsync(
       {
         sub: input.userId,
         sid: input.sessionId,
         email: input.email,
-        role: input.role,
+        role: roles[0],
+        roles,
         type: TOKEN_TYPE_ACCESS,
       },
       {
-        secret: this.configService.getOrThrow<string>(
-          'JWT_ACCESS_SECRET',
-        ),
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.getAccessTokenTtlSeconds(),
         issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
-        audience: this.configService.getOrThrow<string>(
-          'JWT_AUDIENCE',
-        ),
+        audience: this.configService.getOrThrow<string>('JWT_AUDIENCE'),
         algorithm: 'HS256',
         jwtid: randomUUID(),
       },
@@ -76,13 +77,9 @@ export class TokenService {
       const payload = await this.jwtService.verifyAsync<AccessTokenPayload>(
         token,
         {
-          secret: this.configService.getOrThrow<string>(
-            'JWT_ACCESS_SECRET',
-          ),
+          secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
           issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
-          audience: this.configService.getOrThrow<string>(
-            'JWT_AUDIENCE',
-          ),
+          audience: this.configService.getOrThrow<string>('JWT_AUDIENCE'),
           algorithms: ['HS256'],
         },
       );
@@ -97,7 +94,17 @@ export class TokenService {
         throw new Error('Invalid access token payload');
       }
 
-      return payload;
+      const roles = Array.isArray(payload.roles)
+        ? payload.roles
+        : typeof payload.role === 'string'
+          ? [payload.role]
+          : ['customer'];
+
+      return {
+        ...payload,
+        role: roles[0] as AccessTokenPayload['role'],
+        roles: roles as AccessTokenPayload['roles'],
+      };
     } catch {
       throw new UnauthorizedException({
         statusCode: 401,

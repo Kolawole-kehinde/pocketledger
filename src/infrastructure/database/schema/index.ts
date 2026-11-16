@@ -1,5 +1,8 @@
 
 export * from './users.schema.js';
+export * from './roles.schema.js';
+export * from './user-roles.schema.js';
+export * from './role-permissions.schema.js';
 export * from './permission-overrides.schema.js';
 export * from './pending-registrations.schema.js';
 export * from './otp-challenges.schema.js';
@@ -14,5 +17,6 @@ export * from './notifications.schema.js';
 export * from './notification-deliveries.schema.js';
 export * from './notification-preferences.schema.js';
 export * from './outbox-events.schema.js';
-export * from './inbox-events.schema.js'
+export * from './inbox-events.schema.js';
+export * from './ledger/index.js';
 

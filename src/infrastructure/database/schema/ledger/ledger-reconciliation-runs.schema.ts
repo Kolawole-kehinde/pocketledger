@@ -1,3 +1,4 @@
+
 import { sql } from 'drizzle-orm';
 
 import {
@@ -13,6 +14,8 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+
+import { users } from '../users.schema.js';
 
 export const reconciliationRunType = pgEnum('reconciliation_run_type', [
   'FULL',
@@ -40,11 +43,16 @@ export const ledgerReconciliationRuns = pgTable(
 
     runType: reconciliationRunType('run_type').notNull(),
 
-    status: reconciliationRunStatus('status').notNull().default('RUNNING'),
+    status: reconciliationRunStatus('status')
+      .notNull()
+      .default('RUNNING'),
 
     initiatorType: reconciliationInitiatorType('initiator_type').notNull(),
 
-    initiatedBy: uuid('initiated_by'),
+    initiatedBy: uuid('initiated_by').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
 
     startedAt: timestamp('started_at', {
       withTimezone: true,
@@ -56,9 +64,13 @@ export const ledgerReconciliationRuns = pgTable(
       withTimezone: true,
     }),
 
-    accountsChecked: integer('accounts_checked').notNull().default(0),
+    accountsChecked: integer('accounts_checked')
+      .notNull()
+      .default(0),
 
-    discrepanciesFound: integer('discrepancies_found').notNull().default(0),
+    discrepanciesFound: integer('discrepancies_found')
+      .notNull()
+      .default(0),
 
     errorCode: varchar('error_code', { length: 100 }),
 
@@ -73,7 +85,14 @@ export const ledgerReconciliationRuns = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique('ledger_reconciliation_runs_reference_unique').on(table.reference),
+    unique('ledger_reconciliation_runs_reference_unique').on(
+      table.reference,
+    ),
+
+    check(
+      'ledger_reconciliation_runs_reference_not_empty_check',
+      sql`length(trim(${table.reference})) > 0`,
+    ),
 
     check(
       'ledger_reconciliation_runs_accounts_checked_check',
@@ -106,12 +125,38 @@ export const ledgerReconciliationRuns = pgTable(
         (
           ${table.status} = 'RUNNING'
           AND ${table.completedAt} IS NULL
+          AND ${table.errorCode} IS NULL
+          AND ${table.errorMessage} IS NULL
         )
         OR
         (
-          ${table.status} <> 'RUNNING'
+          ${table.status} = 'COMPLETED'
           AND ${table.completedAt} IS NOT NULL
+          AND ${table.discrepanciesFound} = 0
+          AND ${table.errorCode} IS NULL
         )
+        OR
+        (
+          ${table.status} = 'COMPLETED_WITH_DISCREPANCIES'
+          AND ${table.completedAt} IS NOT NULL
+          AND ${table.discrepanciesFound} > 0
+          AND ${table.errorCode} IS NULL
+        )
+        OR
+        (
+          ${table.status} = 'FAILED'
+          AND ${table.completedAt} IS NOT NULL
+          AND ${table.errorCode} IS NOT NULL
+          AND length(trim(${table.errorCode})) > 0
+        )
+      `,
+    ),
+
+    check(
+      'ledger_reconciliation_runs_completion_time_check',
+      sql`
+        ${table.completedAt} IS NULL
+        OR ${table.completedAt} >= ${table.startedAt}
       `,
     ),
 

@@ -6,7 +6,8 @@ export class UserListItemResponseDto {
   lastName: UserListItem['lastName'];
   username: UserListItem['username'];
   email: UserListItem['email'];
-  role: UserListItem['role'];
+  role: UserListItem['roles'][number];
+  roles: UserListItem['roles'];
   status: UserListItem['status'];
   createdAt: UserListItem['createdAt'];
 
@@ -16,7 +17,8 @@ export class UserListItemResponseDto {
     this.lastName = user.lastName;
     this.username = user.username;
     this.email = user.email;
-    this.role = user.role;
+    this.role = user.roles[0];
+    this.roles = user.roles;
     this.status = user.status;
     this.createdAt = user.createdAt;
   }

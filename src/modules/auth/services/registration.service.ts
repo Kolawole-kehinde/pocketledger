@@ -1,27 +1,31 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { DATABASE } from '../../../infrastructure/database/database.provider.js';
 import type {
   Database,
   DatabaseTransaction,
 } from '../../../infrastructure/database/database.types.js';
+import type { User } from '../../../infrastructure/database/schema/users.schema.js';
 import { OutboxRepository } from '../../../infrastructure/messaging/outbox/outbox.repository.js';
+import { UserRolesRepository } from '../../authorization/repositories/user-roles.repository.js';
+import { DEFAULT_ROLE } from '../../authorization/roles.js';
 import { UsersRepository } from '../../users/users.repository.js';
 import {
   AUTH_MESSAGES,
   AUTH_RATE_LIMITS,
   USER_REGISTERED_EVENT,
 } from '../auth.constants.js';
-import type { OtpVerificationStatus } from '../auth.types.js';
+import type {
+  OtpVerificationStatus,
+  RegistrationTokenPayload,
+  SessionWithTokens,
+} from '../auth.types.js';
 import { OtpRequestedResponseDto } from '../dto/auth-response.dto.js';
-import { PendingRegistrationsRepository } from '../repositories/pending-registrations.repository.js';
 import { AuthAuditRepository } from '../repositories/auth-audit.repository.js';
+import { PendingRegistrationsRepository } from '../repositories/pending-registrations.repository.js';
 import type { CompleteRegistrationInput } from '../schemas/auth.schemas.js';
-import {
-  authBadRequest,
-  authConflict,
-  authUnauthorized,
-} from '../utils/auth-errors.js';
+import { authBadRequest, authConflict, authUnauthorized } from '../utils/auth-errors.js';
 import { getUserUniqueField } from '../utils/postgres-error.js';
 import type { RequestMetadata } from '../utils/request-metadata.js';
 import { AuthMailerService } from './auth-mailer.service.js';
@@ -29,11 +33,6 @@ import { OtpService } from './otp.service.js';
 import { RateLimiterService } from './rate-limiter.service.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
-import type {
-  RegistrationTokenPayload,
-  SessionWithTokens,
-} from '../auth.types.js';
-import type { User } from '../../../infrastructure/database/schema/users.schema.js';
 
 @Injectable()
 export class RegistrationService {
@@ -51,6 +50,7 @@ export class RegistrationService {
     private readonly sessionService: SessionService,
     private readonly tokenService: TokenService,
     private readonly outboxRepository: OutboxRepository,
+    private readonly userRolesRepository: UserRolesRepository,
   ) {}
 
   private getOtpTtlMinutes(): number {
@@ -376,11 +376,12 @@ export class RegistrationService {
             middleName: input.middleName ?? null,
             username: input.username,
             phoneNumber: input.phoneNumber,
-            role: 'customer',
             status: 'active',
           },
           tx,
         );
+
+        await this.userRolesRepository.assignDefaultRole(user.id, tx);
 
         const created = await this.sessionService.createSession(
           tx,
@@ -397,7 +398,7 @@ export class RegistrationService {
           payload: {
             userId: user.id,
             email: user.email,
-            role: user.role,
+            roles: [DEFAULT_ROLE],
             status: user.status,
             registeredAt: user.createdAt.toISOString(),
           },

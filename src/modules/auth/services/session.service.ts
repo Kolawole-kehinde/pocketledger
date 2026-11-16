@@ -1,34 +1,24 @@
 
 import { Inject, Injectable } from '@nestjs/common';
+
 import { DATABASE } from '../../../infrastructure/database/database.provider.js';
 import type {
   Database,
   DatabaseTransaction,
 } from '../../../infrastructure/database/database.types.js';
-import type {
-  Session,
-} from '../../../infrastructure/database/schema/sessions.schema.js';
-import type {
-  AccessTokenRevocation,
-} from '../../../infrastructure/database/schema/access-token-revocations.schema.js';
-import type {
-  User,
-} from '../../../infrastructure/database/schema/users.schema.js';
+import type { AccessTokenRevocation } from '../../../infrastructure/database/schema/access-token-revocations.schema.js';
+import type { Session } from '../../../infrastructure/database/schema/sessions.schema.js';
+import type { User } from '../../../infrastructure/database/schema/users.schema.js';
+import { UserRolesRepository } from '../../authorization/repositories/user-roles.repository.js';
+import { DEFAULT_ROLE, normalizeRoles, type Role } from '../../authorization/roles.js';
 import type {
   AuthTransaction,
-  RefreshRotationResult,
   SessionCreationResult,
   SessionWithTokens,
 } from '../auth.types.js';
 import { AUTH_MESSAGES } from '../auth.constants.js';
-import {
-  authForbidden,
-  authNotFound,
-  authUnauthorized,
-} from '../utils/auth-errors.js';
-import type {
-  RequestMetadata,
-} from '../utils/request-metadata.js';
+import { authForbidden, authNotFound, authUnauthorized } from '../utils/auth-errors.js';
+import type { RequestMetadata } from '../utils/request-metadata.js';
 import { AuthAuditRepository } from '../repositories/auth-audit.repository.js';
 import { RefreshTokensRepository } from '../repositories/refresh-tokens.repository.js';
 import { SessionsRepository } from '../repositories/sessions.repository.js';
@@ -44,7 +34,16 @@ export class SessionService {
     private readonly tokenService: TokenService,
     private readonly authAuditRepository: AuthAuditRepository,
     private readonly accessTokenRevocationService: AccessTokenRevocationService,
+    private readonly userRolesRepository: UserRolesRepository,
   ) {}
+
+  private async resolveRoles(
+    userId: string,
+    tx?: DatabaseTransaction,
+  ): Promise<Role[]> {
+    const roles = await this.userRolesRepository.findRoleIdsByUserId(userId, tx);
+    return normalizeRoles(roles.length > 0 ? roles : [DEFAULT_ROLE]);
+  }
 
   async createSession(
     tx: AuthTransaction,
@@ -130,11 +129,12 @@ export class SessionService {
     created: SessionCreationResult,
     user: User,
   ): Promise<SessionWithTokens> {
+    const roles = await this.resolveRoles(user.id);
     const accessToken = await this.tokenService.signAccessToken({
       userId: user.id,
       sessionId: created.session.id,
       email: user.email,
-      role: user.role,
+      roles,
     });
 
     return {
@@ -306,11 +306,12 @@ async rotateRefreshToken(
     // 12. Sign the access token BEFORE the transaction commits.
     // If signing fails, the transaction rolls back, restoring the
     // previous refresh token and removing the replacement.
+    const roles = await this.resolveRoles(active.user.id, tx);
     const accessToken = await this.tokenService.signAccessToken({
       userId: active.user.id,
       sessionId: session.id,
       email: active.user.email,
-      role: active.user.role,
+      roles,
     });
 
     return {

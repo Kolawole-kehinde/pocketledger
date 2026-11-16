@@ -70,8 +70,8 @@ export const ledgerAccounts = pgTable(
   },
   (table) => [
     // Each customer wallet has only one ledger account.
-    unique('ledger_accounts_wallet_id_unique')
-      .on(table.walletId),
+    unique('ledger_accounts_wallet_currency_unique')
+  .on(table.walletId, table.currency),
 
     // Required for customer-only composite foreign keys.
     unique('ledger_accounts_id_owner_type_unique')

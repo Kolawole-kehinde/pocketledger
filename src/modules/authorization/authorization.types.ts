@@ -1,10 +1,11 @@
 import type { Request } from 'express';
-import type { User } from '../../infrastructure/database/schema/users.schema.js';
+
+import type { Role } from './roles.js';
 
 export interface AuthenticatedUser {
   sub: string;
   email: string;
-  role: User['role'];
+  roles: Role[];
   sessionId: string;
   jti: string;
 }

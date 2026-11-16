@@ -5,13 +5,14 @@ Administrative account management for PocketLedger.
 - **Base path:** `/users`
 - **Authentication:** Bearer access token (`Authorization: Bearer <access-token>`)
 - **Authorization:** permission-based. Every route declares the permission it
-  requires; roles provide the default permission set and administrators may
+  requires; assigned roles provide default permission sets and administrators may
   grant or revoke individual permissions per user.
 
 ## Roles
 
-Roles are defined in `src/modules/authorization/roles.ts`. Every account has
-exactly one role, and the role is stored in the `users.role` column.
+Roles are predefined in `src/modules/authorization/roles.ts` and stored in the
+`roles` table. Users are assigned roles through `user_roles` (many-to-many), and
+every account must have at least one role.
 
 | Role       | Label         | Default for new accounts | Summary |
 | ---------- | ------------- | ------------------------ | ------- |
@@ -19,9 +20,11 @@ exactly one role, and the role is stored in the `users.role` column.
 | `support`  | Support       | No                       | Read-only access to customer accounts and security events for troubleshooting. |
 | `admin`    | Administrator | No                       | Full platform administration, including users, roles, permissions and security events. |
 
-Removing an elevated role downgrades the user to `customer`. A user can never
-be left without a role, and the last remaining administrator cannot be
-demoted or removed.
+A user's effective permissions are the union of permissions granted by all
+assigned roles, with per-user overrides applied on top. Removing an elevated
+role must not leave a user without roles; users are returned to the default
+`customer` role when necessary. The last remaining administrator cannot be
+demoted or removed from the `admin` role.
 
 ## Default permission matrix
 

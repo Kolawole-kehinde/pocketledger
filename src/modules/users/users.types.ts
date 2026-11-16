@@ -1,12 +1,8 @@
-
-import type {
-  NewUser,
-  User,
-} from '../../infrastructure/database/schema/users.schema.js';
-
+import type { User } from '../../infrastructure/database/schema/users.schema.js';
 import type { UserPermissionOverride } from '../../infrastructure/database/schema/permission-overrides.schema.js';
 import type { DatabaseTransaction } from '../../infrastructure/database/database.types.js';
 import type { Permission } from '../authorization/permissions.js';
+import type { Role } from '../authorization/roles.js';
 import type { UpdateUserInput } from './schemas/update-user-schema.js';
 
 export type UserTransaction = DatabaseTransaction;
@@ -22,21 +18,11 @@ export type CreateUserData = {
   phoneNumber: string;
 };
 
-export type CreateVerifiedCustomerData = Pick<
-  NewUser,
-  | 'firstName'
-  | 'lastName'
-  | 'middleName'
-  | 'username'
-  | 'email'
-  | 'phoneNumber'
->;
-
 export interface UserListFilters {
   page: number;
   pageSize: number;
   search?: string;
-  role?: User['role'];
+  role?: Role;
   status?: User['status'];
   sortBy: 'createdAt' | 'firstName' | 'lastName' | 'email';
   sortOrder: 'asc' | 'desc';
@@ -54,7 +40,7 @@ export interface UserListItem {
   lastName: User['lastName'];
   username: User['username'];
   email: User['email'];
-  role: User['role'];
+  roles: Role[];
   status: User['status'];
   createdAt: User['createdAt'];
 }
@@ -83,7 +69,7 @@ export interface AdminActionMetadata {
 }
 
 export interface UserPermissionState {
-  user: User;
+  user: User & { roles: Role[] };
   /** Effective permissions after role defaults and overrides. */
   permissions: Permission[];
   overrides: UserPermissionOverride[];

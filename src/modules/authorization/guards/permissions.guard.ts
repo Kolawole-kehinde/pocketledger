@@ -5,10 +5,12 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+
 import type { AuthenticatedRequest } from '../authorization.types.js';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator.js';
 import type { Permission } from '../permissions.js';
+import { normalizeRoles } from '../roles.js';
 import { PermissionCacheService } from '../services/permission-cache.service.js';
 
 @Injectable()
@@ -19,10 +21,10 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (isPublic) {
       return true;
@@ -32,10 +34,7 @@ export class PermissionsGuard implements CanActivate {
       Permission[]
     >(PERMISSIONS_KEY, [context.getHandler(), context.getClass()]);
 
-    if (
-      !requiredPermissions ||
-      requiredPermissions.length === 0
-    ) {
+    if (!requiredPermissions || requiredPermissions.length === 0) {
       return true;
     }
 
@@ -51,10 +50,12 @@ export class PermissionsGuard implements CanActivate {
       });
     }
 
+    const roles = normalizeRoles(request.user.roles ?? []);
+
     for (const permission of requiredPermissions) {
       const allowed = await this.permissionCacheService.hasPermission(
         request.user.sub,
-        request.user.role,
+        roles,
         permission,
       );
 

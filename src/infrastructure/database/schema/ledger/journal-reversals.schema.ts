@@ -13,6 +13,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
+import { users } from '../users.schema.js';
+
 import { journalTransactions } from './journal-transactions.schema.js';
 
 export const journalReversals = pgTable(
@@ -28,8 +30,10 @@ export const journalReversals = pgTable(
 
     reason: text('reason').notNull(),
 
-    // User FK will be added when the users schema is available.
-    reversedBy: uuid('reversed_by'),
+    reversedBy: uuid('reversed_by').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
 
     createdAt: timestamp('created_at', {
       withTimezone: true,

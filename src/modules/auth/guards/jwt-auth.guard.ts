@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+
 import type { AuthenticatedRequest } from '../../authorization/authorization.types.js';
 import { IS_PUBLIC_KEY } from '../../authorization/decorators/public.decorator.js';
+import { UserRolesRepository } from '../../authorization/repositories/user-roles.repository.js';
+import { normalizeRoles } from '../../authorization/roles.js';
 import type { AccessTokenPayload } from '../auth.types.js';
 import { AuthAuditRepository } from '../repositories/auth-audit.repository.js';
 import { SessionsRepository } from '../repositories/sessions.repository.js';
@@ -30,6 +33,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly accessTokenRevocationService: AccessTokenRevocationService,
     private readonly sessionsRepository: SessionsRepository,
     private readonly authAuditRepository: AuthAuditRepository,
+    private readonly userRolesRepository: UserRolesRepository,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -86,10 +90,18 @@ export class JwtAuthGuard implements CanActivate {
     const authenticatedRequest =
       request as unknown as AuthenticatedRequest;
 
+    const roles = normalizeRoles(
+      (payload.roles && payload.roles.length > 0
+        ? payload.roles
+        : payload.role
+          ? [payload.role]
+          : await this.userRolesRepository.findRoleIdsByUserId(active.user.id)) as string[],
+    );
+
     authenticatedRequest.user = {
       sub: active.user.id,
       email: active.user.email,
-      role: active.user.role,
+      roles,
       sessionId: active.session.id,
       jti: payload.jti,
     };

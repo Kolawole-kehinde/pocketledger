@@ -17,6 +17,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
+import { users } from '../users.schema.js';
+
 import { financialHolds } from './financial-holds.schema.js';
 import { journalTransactions } from './journal-transactions.schema.js';
 
@@ -44,8 +46,10 @@ export const holdOperations = pgTable(
 
     journalTransactionId: uuid('journal_transaction_id'),
 
-    // User FK will be added when the users schema is available.
-    performedBy: uuid('performed_by'),
+    performedBy: uuid('performed_by').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
 
     reason: text('reason').notNull(),
 

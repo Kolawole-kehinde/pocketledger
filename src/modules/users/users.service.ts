@@ -14,18 +14,16 @@ import { getUserUniqueField } from '../auth/utils/postgres-error.js';
 import {
   DEFAULT_ROLE,
   ROLES,
+  normalizeRoles,
   type Role,
 } from '../authorization/roles.js';
-import {
-  isPermission,
-  type Permission,
-} from '../authorization/permissions.js';
+import { isPermission, type Permission } from '../authorization/permissions.js';
 import { PermissionOverridesRepository } from '../authorization/repositories/permission-overrides.repository.js';
+import { UserRolesRepository } from '../authorization/repositories/user-roles.repository.js';
 import { PermissionCacheService } from '../authorization/services/permission-cache.service.js';
 import { UsersRepository } from './users.repository.js';
 import type {
   AdminActionMetadata,
-  CreateVerifiedCustomerData,
   PaginatedUsers,
   UpdateUserData,
   UserListFilters,
@@ -35,8 +33,6 @@ import type {
 
 const MAX_USER_LIST_OFFSET = 100_000;
 
-type RoleChangeOperation = 'assigned' | 'updated' | 'removed';
-
 @Injectable()
 export class UsersService {
   constructor(
@@ -45,43 +41,17 @@ export class UsersService {
     private readonly usersRepository: UsersRepository,
     private readonly permissionCacheService: PermissionCacheService,
     private readonly permissionOverridesRepository: PermissionOverridesRepository,
+    private readonly userRolesRepository: UserRolesRepository,
     private readonly authAuditRepository: AuthAuditRepository,
   ) {}
 
-  async createVerifiedCustomer(
-    data: CreateVerifiedCustomerData,
-    tx: UserTransaction,
-  ): Promise<User> {
-    const normalizedEmail = data.email.trim().toLowerCase();
-
-    const existingUser = await this.usersRepository.findByEmail(
-      normalizedEmail,
-      tx,
-    );
-
-    if (existingUser) {
-      throw new ConflictException('An account with this email already exists');
-    }
-
-    return this.usersRepository.create(
-      {
-        ...data,
-        email: normalizedEmail,
-        role: DEFAULT_ROLE,
-        status: 'active',
-      },
-      tx,
-    );
-  }
-
   async findByEmail(email: string): Promise<User | null> {
     const normalizedEmail = email.trim().toLowerCase();
-
     return this.usersRepository.findByEmail(normalizedEmail);
   }
 
-  async findById(id: string): Promise<User> {
-    const user = await this.usersRepository.findById(id);
+  async findById(id: string): Promise<User & { roles: Role[] }> {
+    const user = await this.usersRepository.findByIdWithRoles(id);
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -90,7 +60,7 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, data: UpdateUserData): Promise<User> {
+  async update(id: string, data: UpdateUserData): Promise<User & { roles: Role[] }> {
     if (Object.keys(data).length === 0) {
       throw new BadRequestException(
         'At least one field must be provided for update',
@@ -104,7 +74,7 @@ export class UsersService {
         throw new NotFoundException('User not found');
       }
 
-      return updatedUser;
+      return this.findById(id);
     } catch (error) {
       const conflictingField = getUserUniqueField(error);
 
@@ -119,69 +89,64 @@ export class UsersService {
     }
   }
 
-  /**
-   * Assigns or replaces a user's role. Role changes reset per-user permission
-   * overrides so the account returns to the new role's baseline.
-   */
-  async updateRole(
-    actorId: string,
-    targetUserId: string,
-    role: Role,
-    metadata: AdminActionMetadata = {},
-  ): Promise<User> {
-    return this.changeRole(
-      actorId,
-      targetUserId,
-      role,
-      'updated',
-      metadata,
-    );
-  }
-
-  /**
-   * Assigns a role to a user. Semantically equivalent to `updateRole`; kept as
-   * a distinct entry point so the API can expose both `POST /roles` and
-   * `PATCH /role` without duplicating authorization rules.
-   */
   async assignRole(
     actorId: string,
     targetUserId: string,
     role: Role,
     metadata: AdminActionMetadata = {},
-  ): Promise<User> {
-    return this.changeRole(
+  ): Promise<User & { roles: Role[] }> {
+    return this.changeRoles(
       actorId,
       targetUserId,
-      role,
-      'assigned',
+      async (existingRoles, tx) => {
+        const next = normalizeRoles([...existingRoles, role]);
+        await this.userRolesRepository.replaceRoles(targetUserId, next, tx);
+        return { previousRoles: existingRoles, nextRoles: next, operation: 'assigned' as const };
+      },
       metadata,
     );
   }
 
-  /**
-   * Removes an elevated role by returning the user to the default customer
-   * role. Every account must have a role, so removal is a downgrade rather
-   * than a null role.
-   */
+  async updateRole(
+    actorId: string,
+    targetUserId: string,
+    role: Role,
+    metadata: AdminActionMetadata = {},
+  ): Promise<User & { roles: Role[] }> {
+    return this.changeRoles(
+      actorId,
+      targetUserId,
+      async (existingRoles, tx) => {
+        const next = normalizeRoles([role]);
+        await this.userRolesRepository.replaceRoles(targetUserId, next, tx);
+        return { previousRoles: existingRoles, nextRoles: next, operation: 'updated' as const };
+      },
+      metadata,
+    );
+  }
+
   async removeRole(
     actorId: string,
     targetUserId: string,
     metadata: AdminActionMetadata = {},
-  ): Promise<User> {
-    const existing = await this.findById(targetUserId);
-
-    if (existing.role === DEFAULT_ROLE) {
-      throw new BadRequestException({
-        code: 'ROLE_ALREADY_REMOVED',
-        message: `The user already has the default ${DEFAULT_ROLE} role`,
-      });
-    }
-
-    return this.changeRole(
+  ): Promise<User & { roles: Role[] }> {
+    return this.changeRoles(
       actorId,
       targetUserId,
-      DEFAULT_ROLE,
-      'removed',
+      async (existingRoles, tx) => {
+        const onlyDefault =
+          existingRoles.length === 1 && existingRoles[0] === DEFAULT_ROLE;
+        if (onlyDefault) {
+          throw new BadRequestException({
+            code: 'ROLE_ALREADY_REMOVED',
+            message: `The user already has the default ${DEFAULT_ROLE} role`,
+          });
+        }
+
+        const next = [DEFAULT_ROLE] as Role[];
+        await this.userRolesRepository.replaceRoles(targetUserId, next, tx);
+        return { previousRoles: existingRoles, nextRoles: next, operation: 'removed' as const };
+      },
       metadata,
     );
   }
@@ -191,7 +156,7 @@ export class UsersService {
     targetUserId: string,
     status: User['status'],
     metadata: AdminActionMetadata = {},
-  ): Promise<User> {
+  ): Promise<User & { roles: Role[] }> {
     this.assertNotSelf(
       actorId,
       targetUserId,
@@ -199,7 +164,7 @@ export class UsersService {
       'You cannot change your own account status',
     );
 
-    const updatedUser = await this.db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       const existing = await this.usersRepository.findById(targetUserId, tx);
 
       if (!existing) {
@@ -243,29 +208,23 @@ export class UsersService {
     });
 
     this.permissionCacheService.invalidateUser(targetUserId);
-
-    return updatedUser;
+    return this.findById(targetUserId);
   }
 
   async listUsers(filters: UserListFilters): Promise<PaginatedUsers> {
     const { page, pageSize } = filters;
-
     const offset = (page - 1) * pageSize;
 
-    if (
-      !Number.isSafeInteger(offset) ||
-      offset > MAX_USER_LIST_OFFSET
-    ) {
+    if (!Number.isSafeInteger(offset) || offset > MAX_USER_LIST_OFFSET) {
       throw new BadRequestException(
         'Requested page exceeds the maximum supported offset.',
       );
     }
 
-    const { data, total } =
-      await this.usersRepository.findMany({
-        ...filters,
-        offset,
-      });
+    const { data, total } = await this.usersRepository.findMany({
+      ...filters,
+      offset,
+    });
 
     const totalPages = Math.ceil(total / pageSize);
 
@@ -282,15 +241,11 @@ export class UsersService {
     };
   }
 
-  /**
-   * Returns the user's role, the effective permission set after overrides and
-   * the raw overrides themselves. Used by the admin permission screens.
-   */
   async getPermissionState(userId: string): Promise<UserPermissionState> {
     const user = await this.findById(userId);
 
     const [effectivePermissions, overrides] = await Promise.all([
-      this.permissionCacheService.getPermissions(user.id, user.role),
+      this.permissionCacheService.getPermissions(user.id, user.roles),
       this.permissionOverridesRepository.findByUserId(user.id),
     ]);
 
@@ -301,9 +256,6 @@ export class UsersService {
     };
   }
 
-  /**
-   * Grants a permission the user's role does not provide by default.
-   */
   async grantPermission(
     actorId: string,
     targetUserId: string,
@@ -322,16 +274,11 @@ export class UsersService {
 
     await this.db.transaction(async (tx) => {
       const user = await this.usersRepository.findById(targetUserId, tx);
-
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
+      if (!user) throw new NotFoundException('User not found');
+      const roles = await this.usersRepository.findRolesByUserId(targetUserId, tx);
 
       const effectivePermissions =
-        await this.permissionCacheService.getPermissions(
-          user.id,
-          user.role,
-        );
+        await this.permissionCacheService.getPermissions(user.id, roles);
 
       if (effectivePermissions.has(validPermission)) {
         throw new BadRequestException({
@@ -367,10 +314,7 @@ export class UsersService {
           ipAddress: metadata.ipAddress ?? null,
           userAgent: metadata.userAgent ?? null,
           before: existing
-            ? {
-                effect: existing.effect,
-                reason: existing.reason,
-              }
+            ? { effect: existing.effect, reason: existing.reason }
             : null,
           after: {
             permission: validPermission,
@@ -388,14 +332,9 @@ export class UsersService {
     });
 
     this.permissionCacheService.invalidateUser(targetUserId);
-
     return this.getPermissionState(targetUserId);
   }
 
-  /**
-   * Revokes a permission the user currently holds, either from their role or
-   * from a previous grant.
-   */
   async revokePermission(
     actorId: string,
     targetUserId: string,
@@ -414,16 +353,11 @@ export class UsersService {
 
     await this.db.transaction(async (tx) => {
       const user = await this.usersRepository.findById(targetUserId, tx);
-
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
+      if (!user) throw new NotFoundException('User not found');
+      const roles = await this.usersRepository.findRolesByUserId(targetUserId, tx);
 
       const effectivePermissions =
-        await this.permissionCacheService.getPermissions(
-          user.id,
-          user.role,
-        );
+        await this.permissionCacheService.getPermissions(user.id, roles);
 
       if (!effectivePermissions.has(validPermission)) {
         throw new BadRequestException({
@@ -459,10 +393,7 @@ export class UsersService {
           ipAddress: metadata.ipAddress ?? null,
           userAgent: metadata.userAgent ?? null,
           before: existing
-            ? {
-                effect: existing.effect,
-                reason: existing.reason,
-              }
+            ? { effect: existing.effect, reason: existing.reason }
             : null,
           after: {
             permission: validPermission,
@@ -480,14 +411,9 @@ export class UsersService {
     });
 
     this.permissionCacheService.invalidateUser(targetUserId);
-
     return this.getPermissionState(targetUserId);
   }
 
-  /**
-   * Removes an explicit grant/revoke override, returning the user to the
-   * permission set defined by their role.
-   */
   async clearPermissionOverride(
     actorId: string,
     targetUserId: string,
@@ -505,10 +431,7 @@ export class UsersService {
 
     await this.db.transaction(async (tx) => {
       const user = await this.usersRepository.findById(targetUserId, tx);
-
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
+      if (!user) throw new NotFoundException('User not found');
 
       const existing =
         await this.permissionOverridesRepository.findByUserAndPermission(
@@ -552,17 +475,22 @@ export class UsersService {
     });
 
     this.permissionCacheService.invalidateUser(targetUserId);
-
     return this.getPermissionState(targetUserId);
   }
 
-  private async changeRole(
+  private async changeRoles(
     actorId: string,
     targetUserId: string,
-    role: Role,
-    operation: RoleChangeOperation,
+    mutate: (
+      existingRoles: Role[],
+      tx: UserTransaction,
+    ) => Promise<{
+      previousRoles: Role[];
+      nextRoles: Role[];
+      operation: 'assigned' | 'updated' | 'removed';
+    }>,
     metadata: AdminActionMetadata,
-  ): Promise<User> {
+  ): Promise<User & { roles: Role[] }> {
     this.assertNotSelf(
       actorId,
       targetUserId,
@@ -570,38 +498,23 @@ export class UsersService {
       'You cannot change your own role',
     );
 
-    const updatedUser = await this.db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       const existing = await this.usersRepository.findById(targetUserId, tx);
+      if (!existing) throw new NotFoundException('User not found');
 
-      if (!existing) {
-        throw new NotFoundException('User not found');
-      }
-
-      if (existing.role === role) {
-        if (operation === 'removed') {
-          throw new BadRequestException({
-            code: 'ROLE_ALREADY_REMOVED',
-            message: `The user already has the default ${DEFAULT_ROLE} role`,
-          });
-        }
-
-        return existing;
-      }
-
-      await this.assertNotLastAdmin(existing, role, tx);
-
-      const updated = await this.usersRepository.updateRole(
+      const existingRoles = await this.usersRepository.findRolesByUserId(
         targetUserId,
-        role,
+        tx,
+      );
+      const { previousRoles, nextRoles, operation } = await mutate(
+        existingRoles,
         tx,
       );
 
-      if (!updated) {
-        throw new NotFoundException('User not found');
-      }
+      await this.assertNotLastAdmin(previousRoles, nextRoles, tx);
 
-      // A role change resets overrides so grants/revokes from the previous
-      // role cannot leak into the new one.
+      // Role changes reset overrides so grants/revokes from the previous
+      // role set cannot leak into the new one.
       await this.permissionOverridesRepository.deleteAllForUser(
         targetUserId,
         tx,
@@ -617,31 +530,30 @@ export class UsersService {
           metadata: {
             actorId,
             operation,
-            previousRole: existing.role,
-            newRole: updated.role,
+            previousRoles,
+            newRoles: nextRoles,
           },
         },
         tx,
       );
-
-      return updated;
     });
 
     this.permissionCacheService.invalidateUser(targetUserId);
-
-    return updatedUser;
+    return this.findById(targetUserId);
   }
 
   private async assertNotLastAdmin(
-    user: User,
-    nextRole: Role,
+    previousRoles: Role[],
+    nextRoles: Role[],
     tx: UserTransaction,
   ): Promise<void> {
-    if (user.role !== ROLES.ADMIN || nextRole === ROLES.ADMIN) {
+    const hadAdmin = previousRoles.includes(ROLES.ADMIN);
+    const willHaveAdmin = nextRoles.includes(ROLES.ADMIN);
+    if (!hadAdmin || willHaveAdmin) {
       return;
     }
 
-    const adminCount = await this.usersRepository.countByRole(
+    const adminCount = await this.userRolesRepository.countUsersWithRole(
       ROLES.ADMIN,
       tx,
     );

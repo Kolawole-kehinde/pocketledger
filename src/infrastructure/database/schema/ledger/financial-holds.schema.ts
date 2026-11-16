@@ -16,6 +16,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
+import { users } from '../users.schema.js';
+
 import {
   ledgerAccounts,
   ledgerAccountOwnerTypeEnum,
@@ -67,8 +69,10 @@ export const financialHolds = pgTable(
 
     reason: text('reason').notNull(),
 
-    // User FK will be added when the users schema is available.
-    createdBy: uuid('created_by'),
+    createdBy: uuid('created_by').references(() => users.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
 
     expiresAt: timestamp('expires_at', { withTimezone: true }),
 

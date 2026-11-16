@@ -1,19 +1,14 @@
-import type { User } from '../../infrastructure/database/schema/users.schema.js';
-
 /**
- * Canonical role names used throughout the application.
- *
- * The database enum is the source of truth for persisted values; this object
- * gives the rest of the codebase a typed, discoverable reference so role
- * strings are never scattered as magic values.
+ * Canonical role identifiers. Roles are stored in the `roles` table and
+ * assigned to users through `user_roles` (many-to-many).
  */
 export const ROLES = {
   CUSTOMER: 'customer',
   SUPPORT: 'support',
   ADMIN: 'admin',
-} as const satisfies Record<string, User['role']>;
+} as const;
 
-export type Role = User['role'];
+export type Role = (typeof ROLES)[keyof typeof ROLES];
 
 /** Every user starts with this role when their account is created. */
 export const DEFAULT_ROLE: Role = ROLES.CUSTOMER;
@@ -35,7 +30,7 @@ export interface RoleDefinition {
 }
 
 /**
- * The three roles supported by PocketLedger.
+ * The three predefined roles supported by PocketLedger.
  *
  * - `customer` owns their own account and can only act on their own data.
  * - `support` can inspect customer accounts and security events to help
@@ -78,4 +73,20 @@ export const ROLE_VALUES = [
 
 export function isRole(value: string): value is Role {
   return (ROLE_VALUES as readonly string[]).includes(value);
+}
+
+export function normalizeRoles(roles: readonly string[]): Role[] {
+  const unique = new Set<Role>();
+
+  for (const role of roles) {
+    if (isRole(role)) {
+      unique.add(role);
+    }
+  }
+
+  if (unique.size === 0) {
+    unique.add(DEFAULT_ROLE);
+  }
+
+  return ROLE_VALUES.filter((role) => unique.has(role));
 }

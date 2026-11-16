@@ -3,6 +3,7 @@ import type { OtpChallenge } from '../../infrastructure/database/schema/otp-chal
 import type { RefreshToken } from '../../infrastructure/database/schema/refresh-tokens.schema.js';
 import type { Session } from '../../infrastructure/database/schema/sessions.schema.js';
 import type { User } from '../../infrastructure/database/schema/users.schema.js';
+import type { Role } from '../authorization/roles.js';
 
 export type AuthTransaction = DatabaseTransaction;
 
@@ -44,7 +45,12 @@ export interface AccessTokenPayload {
   sid: string;
   jti: string;
   email: string;
-  role: User['role'];
+  /**
+   * Primary role for compatibility with existing clients/tokens. Effective
+   * authorization is derived from `roles` when present.
+   */
+  role?: Role;
+  roles?: Role[];
   type: 'access';
   iat?: number;
   exp?: number;

@@ -42,8 +42,9 @@ export const ledgerReconciliationRunAccounts = pgTable(
       ],
     }),
 
-    index('ledger_reconciliation_run_accounts_account_idx')
-      .on(table.ledgerAccountId),
+    index('ledger_reconciliation_run_accounts_account_idx').on(
+      table.ledgerAccountId,
+    ),
   ],
 );
 
