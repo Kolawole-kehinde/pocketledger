@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   AnyPgColumn,
+  boolean,
   check,
   pgEnum,
   pgTable,
@@ -36,6 +37,7 @@ export const chartOfAccounts = pgTable(
         onUpdate: 'restrict',
       },
     ),
+    isContraAccount: boolean('is_contra_account').notNull().default(false),
     description: text('description'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
