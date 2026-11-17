@@ -124,15 +124,22 @@
     {
       "idx": 17,
       "version": "7",
-      "when": 1794751270189,
-      "tag": "0017_ledger_account_balance_triggers",
+      "when": 1794905179338,
+      "tag": "0017_ledger_rbac_base_schema",
       "breakpoints": true
     },
     {
       "idx": 18,
       "version": "7",
-      "when": 1794828558968,
+      "when": 1794905223637,
       "tag": "0018_rbac_multi_role_and_ledger_fks",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794905239646,
+      "tag": "0019_ledger_account_balance_triggers",
       "breakpoints": true
     }
   ]

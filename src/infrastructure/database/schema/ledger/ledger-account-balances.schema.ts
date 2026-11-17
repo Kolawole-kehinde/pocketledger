@@ -50,9 +50,9 @@ export const ledgerAccountBalances = pgTable(
       .notNull()
       .default('0'),
 
-    version: bigint('version', { mode: 'bigint' })
-      .notNull()
-      .default(0n),
+ version: bigint('version', { mode: 'bigint' })
+  .notNull()
+  .default(sql`0`),
 
     lastEntryAt: timestamp('last_entry_at', {
       withTimezone: true,

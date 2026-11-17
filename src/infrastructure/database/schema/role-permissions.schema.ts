@@ -5,7 +5,6 @@ import {
   timestamp,
   varchar,
 } from 'drizzle-orm/pg-core';
-
 import { roles } from './roles.schema.js';
 
 export const rolePermissions = pgTable(

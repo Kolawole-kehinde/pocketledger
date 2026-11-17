@@ -49,13 +49,13 @@ export const financialHolds = pgTable(
 
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
 
-    capturedAmount: bigint('captured_amount', { mode: 'bigint' })
-      .notNull()
-      .default(0n),
+   capturedAmount: bigint('captured_amount', { mode: 'bigint' })
+  .notNull()
+  .default(sql`0`),
 
-    releasedAmount: bigint('released_amount', { mode: 'bigint' })
-      .notNull()
-      .default(0n),
+releasedAmount: bigint('released_amount', { mode: 'bigint' })
+  .notNull()
+  .default(sql`0`),
 
     status: financialHoldStatus('status')
       .notNull()
