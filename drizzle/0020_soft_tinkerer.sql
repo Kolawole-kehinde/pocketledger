@@ -1,0 +1,2 @@
+ALTER TABLE "chart_of_accounts" ADD COLUMN "is_contra_account" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "chart_of_accounts" ADD COLUMN "is_active" boolean DEFAULT true NOT NULL;

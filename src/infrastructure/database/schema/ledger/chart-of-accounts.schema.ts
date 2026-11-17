@@ -38,6 +38,7 @@ export const chartOfAccounts = pgTable(
       },
     ),
     isContraAccount: boolean('is_contra_account').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
     description: text('description'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
