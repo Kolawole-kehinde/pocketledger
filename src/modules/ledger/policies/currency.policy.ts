@@ -1,16 +1,19 @@
-
 import type { Currency } from '../../../infrastructure/database/schema/ledger/currencies.schema.js';
 
-interface CurrencyPolicyResult {
+export type CurrencyPolicyInput = Pick<
+  Currency,
+  'code' | 'minorUnit' | 'isActive'
+>;
+
+export interface CurrencyPolicyResult {
   valid: boolean;
   code: string | null;
   reason: string | null;
 }
 
 export const currencyPolicy = (
-  currency: Currency | null,
+  currency: CurrencyPolicyInput | null,
 ): CurrencyPolicyResult => {
-    
   if (!currency) {
     return {
       valid: false,
@@ -39,7 +42,8 @@ export const currencyPolicy = (
     return {
       valid: false,
       code: 'CURRENCY_INACTIVE',
-      reason: 'This currency is inactive and cannot be used for new financial operations.',
+      reason:
+        'This currency is inactive and cannot be used for new financial operations.',
     };
   }
 
