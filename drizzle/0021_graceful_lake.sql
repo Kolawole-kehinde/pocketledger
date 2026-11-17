@@ -1,0 +1,1 @@
+ALTER TABLE "system-account-definitions" ALTER COLUMN "allow_negative_balance" SET DEFAULT false;

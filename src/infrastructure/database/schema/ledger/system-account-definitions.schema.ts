@@ -20,7 +20,7 @@ export const systemAccountDefinitions = pgTable(
         onDelete: 'restrict',
         onUpdate: 'restrict',
       }),
-    allowNegativeBalance: boolean('allow_negative_balance').notNull(),
+    allowNegativeBalance: boolean('allow_negative_balance').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', {
       withTimezone: true,
