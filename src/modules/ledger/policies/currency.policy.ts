@@ -1,5 +1,5 @@
 
-import type { Currency } from '../../../../infrastructure/database/schema/ledger/currencies.schema.js';
+import type { Currency } from '../../../infrastructure/database/schema/ledger/currencies.schema.js';
 
 interface CurrencyPolicyResult {
   valid: boolean;

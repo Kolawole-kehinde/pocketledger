@@ -2,7 +2,7 @@
 import {
   accountTypeEnum,
   normalBalanceEnum,
-} from '../../../../infrastructure/database/schema/ledger/chart-of-accounts.schema.js';
+} from '../../../infrastructure/database/schema/ledger/chart-of-accounts.schema.js';
 
 type AccountType = (typeof accountTypeEnum.enumValues)[number];
 type NormalBalance = (typeof normalBalanceEnum.enumValues)[number];

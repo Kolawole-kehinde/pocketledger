@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountPolicy } from './accounting.policy.js';
+import { accountPolicy } from '../accounting.policy.js';
 
 describe('accountPolicy', () => {
   it('should accept DEBIT as the normal balance for a regular ASSETS account', () => {
