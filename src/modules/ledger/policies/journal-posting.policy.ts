@@ -42,8 +42,16 @@ export const journalPostingPolicy = (input: NormalizedJournalPostingInput) => {
      }
 
     // 4. Required valid amoount
-    if(entries){
+  entries.forEach((entry, index) => {
+  if (typeof entry.amount !== 'bigint' || entry.amount <= 0n) {
+    errors.push({
+      code: 'INVALID_ENTRY_AMOUNT',
+      message: 'Entry amount must be a positive bigint.',
+      entryIndex: index,
+      field: 'amount',
+    });
+  }
+});
 
-    }
 
 };
