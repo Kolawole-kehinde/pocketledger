@@ -66,4 +66,25 @@ if (currencies.size > 1) {
   });
 }
 
+
+// 6. Validate JOURNAL_NOT_BALANCED
+const debitTotal = entries.reduce((total, entry) => {
+  return entry.direction === 'DEBIT'
+    ? total + entry.amount
+    : total;
+}, 0n);
+
+const creditTotal = entries.reduce((total, entry) => {
+  return entry.direction === 'CREDIT'
+    ? total + entry.amount
+    : total;
+}, 0n);
+
+if (debitTotal !== creditTotal) {
+  errors.push({
+    code: 'JOURNAL_NOT_BALANCED',
+    message: 'Total debits must equal total credits.',
+    field: 'entries',
+  });
+}
 };
