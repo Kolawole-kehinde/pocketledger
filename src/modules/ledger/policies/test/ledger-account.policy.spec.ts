@@ -6,16 +6,11 @@ import {
   normalBalanceEnum,
 } from '../../../../infrastructure/database/schema/ledger/chart-of-accounts.schema.js';
 
-import {
-  ledgerAccountPolicy,
-  type ChartAccountPolicyInput,
-  type CustomerLedgerAccountInput,
-  type LedgerAccountPolicyInput,
-  type SystemLedgerAccountInput,
-  type WalletCurrencyInput,
-} from '../ledger-account.policy.js';
+
 
 import type { CurrencyPolicyInput } from '../currency.policy.js';
+import { ChartAccountPolicyInput, CustomerLedgerAccountInput, LedgerAccountPolicyInput, SystemLedgerAccountInput, WalletCurrencyInput } from '../../types/ledger-account-policy.type.js';
+import { ledgerAccountPolicy } from '../ledger-account.policy.js';
 
 type AccountType = (typeof accountTypeEnum.enumValues)[number];
 type NormalBalance = (typeof normalBalanceEnum.enumValues)[number];

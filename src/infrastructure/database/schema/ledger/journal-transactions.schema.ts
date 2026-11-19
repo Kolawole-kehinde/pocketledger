@@ -27,6 +27,7 @@ export const transactionType = pgEnum('transaction_type', [
 ]);
 
 export const journalStatus = pgEnum('journal_status', [
+  'DRAFT',
   'POSTED',
 ]);
 
@@ -39,7 +40,7 @@ export const journalTransactions = pgTable(
 
     transactionType: transactionType('transaction_type').notNull(),
 
-    status: journalStatus('status').notNull(),
+    status: journalStatus('status').notNull().default('DRAFT'),
 
     currency: varchar('currency', { length: 3 })
       .notNull()
@@ -60,7 +61,7 @@ export const journalTransactions = pgTable(
 
     postedAt: timestamp('posted_at', {
       withTimezone: true,
-    }).notNull(),
+    }),
 
     createdAt: timestamp('created_at', {
       withTimezone: true,
@@ -79,8 +80,6 @@ export const journalTransactions = pgTable(
         table.postingPurpose,
       ),
 
-    // Required as the referenced key for the composite
-    // currency foreign key in ledger_entries.
     unique('journal_transactions_id_currency_unique')
       .on(table.id, table.currency),
 
@@ -102,6 +101,17 @@ export const journalTransactions = pgTable(
     check(
       'journal_transactions_posting_purpose_not_empty_check',
       sql`length(trim(${table.postingPurpose})) > 0`,
+    ),
+
+    // DRAFT journals must not have a posting timestamp.
+    // POSTED journals must have a posting timestamp.
+    check(
+      'journal_transactions_status_posted_at_check',
+      sql`(
+        (${table.status} = 'DRAFT' AND ${table.postedAt} IS NULL)
+        OR
+        (${table.status} = 'POSTED' AND ${table.postedAt} IS NOT NULL)
+      )`,
     ),
   ],
 );
