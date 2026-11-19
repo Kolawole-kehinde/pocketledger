@@ -53,5 +53,17 @@ export const journalPostingPolicy = (input: NormalizedJournalPostingInput) => {
   }
 });
 
+// 5. Validate mix-currency
+const currencies = new Set(
+  entries.map((entry) => entry.account.currency),
+);
+
+if (currencies.size > 1) {
+  errors.push({
+    code: 'MIXED_CURRENCIES',
+    message: 'All journal entries must use the same currency.',
+    field: 'entries',
+  });
+}
 
 };
