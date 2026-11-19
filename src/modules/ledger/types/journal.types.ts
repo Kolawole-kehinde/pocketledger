@@ -24,6 +24,7 @@ export interface CreateJournalPostingInput {
   sourceModule: string;
   sourceReference: string;
   postingPurpose: string;
+//   transactionType: TransactionType;
   entries: CreateJournalEntryInput[];
 }
 
