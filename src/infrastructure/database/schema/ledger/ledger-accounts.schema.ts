@@ -27,6 +27,14 @@ export const ledgerAccountStatusEnum = pgEnum(
   ['ACTIVE', 'FROZEN', 'CLOSED'],
 );
 
+export const ledgerAccountPurposeEnum = pgEnum('ledger_account_purpose', [
+  'SPENDABLE_WALLET',
+  'LOCKED_SAVINGS',
+  'SYSTEM_CLEARING',
+  'SYSTEM_REVENUE',
+  'SYSTEM_CASH',
+]);
+
 export const ledgerAccounts = pgTable(
   'ledger_accounts',
   {

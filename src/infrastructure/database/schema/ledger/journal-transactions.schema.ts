@@ -119,5 +119,4 @@ export const journalTransactions = pgTable(
 export type JournalTransaction =
   typeof journalTransactions.$inferSelect;
 
-export type NewJournalTransaction =
-  typeof journalTransactions.$inferInsert;
+export type NewJournalTransaction = typeof journalTransactions.$inferInsert;

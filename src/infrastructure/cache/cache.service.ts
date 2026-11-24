@@ -5,9 +5,6 @@ interface CacheEntry {
   value: unknown;
   expiresAt: number;
 }
-
-
-
 export interface CacheStats {
   size: number;
   maxEntries: number;
@@ -20,7 +17,6 @@ const DEFAULT_MAX_ENTRIES = 10_000;
 
 /**
  * Small in-process TTL cache.
- *
  * Entries are lazily expired on read and opportunistically pruned when the
  * cache reaches its configured capacity. The least recently used entry is
  * evicted first.
@@ -38,14 +34,8 @@ export class CacheService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    const configured =
-      this.configService.get<number>('CACHE_MAX_ENTRIES');
-
-    if (
-      typeof configured === 'number' &&
-      Number.isFinite(configured) &&
-      configured > 0
-    ) {
+    const configured = this.configService.get<number>('CACHE_MAX_ENTRIES');
+    if ( typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
       this.maxEntries = Math.floor(configured);
     }
   }

@@ -17,9 +17,12 @@ const valid = (): LedgerAccountPolicyResult => ({
   code: null,
   reason: null,
 });
+
+
 export const ledgerAccountPolicy = (
   input: LedgerAccountPolicyInput,
 ): LedgerAccountPolicyResult => {
+  
   const { ledgerAccount, chartAccount, currency } = input;
 
 

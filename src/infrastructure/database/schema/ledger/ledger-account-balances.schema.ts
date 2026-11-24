@@ -1,4 +1,3 @@
-
 import { sql } from 'drizzle-orm';
 
 import {
@@ -50,9 +49,9 @@ export const ledgerAccountBalances = pgTable(
       .notNull()
       .default('0'),
 
- version: bigint('version', { mode: 'bigint' })
-  .notNull()
-  .default(sql`0`),
+    version: bigint('version', { mode: 'bigint' })
+      .notNull()
+      .default(sql`0`),
 
     lastEntryAt: timestamp('last_entry_at', {
       withTimezone: true,
@@ -86,15 +85,9 @@ export const ledgerAccountBalances = pgTable(
       sql`${table.heldAmount} >= 0`,
     ),
 
-    check(
-      'ledger_account_balances_version_check',
-      sql`${table.version} >= 0`,
-    ),
+    check('ledger_account_balances_version_check', sql`${table.version} >= 0`),
   ],
 );
 
-export type LedgerAccountBalance =
-  typeof ledgerAccountBalances.$inferSelect;
-
-export type NewLedgerAccountBalance =
-  typeof ledgerAccountBalances.$inferInsert;
+export type LedgerAccountBalance = typeof ledgerAccountBalances.$inferSelect;
+export type NewLedgerAccountBalance = typeof ledgerAccountBalances.$inferInsert;

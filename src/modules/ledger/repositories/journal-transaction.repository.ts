@@ -1,11 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asc, eq, inArray } from 'drizzle-orm';
-
 import { DATABASE } from '../../../infrastructure/database/database.provider.js';
-import type {
-  Database,
-  DatabaseTransaction,
-} from '../../../infrastructure/database/database.types.js';
+import type { Database, DatabaseTransaction} from '../../../infrastructure/database/database.types.js';
 import {
   JournalTransaction,
   journalTransactions,
@@ -26,15 +22,13 @@ export class JournalTransactionRepository {
 
   /**
    * Fetches ledger accounts matching the supplied IDs.
-   *
-   * Uses the injected database because this is a preliminary read.
+    Uses the injected database because this is a preliminary read.
    * Missing accounts are handled by the service.
    */
   async findLedgerAccountsByIds(ids: string[]): Promise<LedgerAccount[]> {
     if (ids.length === 0) {
       return [];
     }
-
     return this.db
       .select()
       .from(ledgerAccounts)
@@ -43,7 +37,6 @@ export class JournalTransactionRepository {
 
   /**
    * Locks ledger accounts inside an active transaction.
-   *
    * Sorting IDs gives concurrent operations a consistent
    * account-locking order and helps reduce deadlocks.
    */
@@ -91,12 +84,13 @@ export class JournalTransactionRepository {
       return [];
     }
 
-    return tx.insert(ledgerEntries).values(entries).returning();
+    return tx
+    .insert(ledgerEntries)
+    .values(entries)
+    .returning();
   }
 
-  /**
-   * Marks a journal as posted inside the supplied transaction.
-   */
+  //Marks a journal as posted inside the supplied transaction.
   async markJournalAsPosted(
     tx: DatabaseTransaction,
     journalId: string,

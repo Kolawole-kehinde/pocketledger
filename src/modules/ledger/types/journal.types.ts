@@ -1,4 +1,5 @@
 import type { LedgerAccount } from '../../../infrastructure/database/schema/index.js';
+import { transactionType } from '../../../infrastructure/database/schema/index.js';
 
 export type JournalPostingErrorCode =
   | 'INSUFFICIENT_ENTRIES'
@@ -20,11 +21,13 @@ export interface CreateJournalEntryInput {
   direction: 'DEBIT' | 'CREDIT';
   amount: bigint;
 }
+export type TransactionType =
+  (typeof transactionType.enumValues)[number];
 export interface CreateJournalPostingInput {
   sourceModule: string;
   sourceReference: string;
   postingPurpose: string;
-//   transactionType: TransactionType;
+  transactionType: TransactionType;
   entries: CreateJournalEntryInput[];
 }
 
