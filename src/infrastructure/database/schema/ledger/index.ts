@@ -13,5 +13,6 @@ export * from './hold-operations.schema.js';
 export * from './ledger-reconciliation-discrepancies.schema.js';
 export * from './ledger-reconciliation-runs.schema.js';
 export * from './ledger_reconciliation_run_accounts.schema.js';
+export * from './ledger-account-purpose.schema.js';
 
 

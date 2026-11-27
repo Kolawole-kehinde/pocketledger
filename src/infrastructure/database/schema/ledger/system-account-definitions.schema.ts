@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   pgTable,
   timestamp,
   unique,
@@ -7,6 +8,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { chartOfAccounts } from './chart-of-accounts.schema.js';
+import { ledgerAccountPurposeEnum } from './ledger-account-purpose.schema.js';
+import { sql } from 'drizzle-orm';
 
 export const systemAccountDefinitions = pgTable(
   'system-account-definitions',
@@ -20,6 +23,7 @@ export const systemAccountDefinitions = pgTable(
         onDelete: 'restrict',
         onUpdate: 'restrict',
       }),
+      accountPurpose: ledgerAccountPurposeEnum('account_purpose').notNull(),
     allowNegativeBalance: boolean('allow_negative_balance').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', {
@@ -40,6 +44,24 @@ export const systemAccountDefinitions = pgTable(
       table.id,
       table.chartAccountId,
     ),
+
+    unique('system_account_definitions_id_purpose_unique').on(
+      table.id,
+      table.accountPurpose
+    ),
+
+    check(
+      'system_account_definitions_purpose_check',
+      sql`
+      ${table.accountPurpose} IN (
+        'SYSTEM_CLEARING',
+        'SYSTEM_REVENUE',
+        'SYSTEM_CASH'
+      )
+      `
+    ),
+
+    
   ],
 );
 

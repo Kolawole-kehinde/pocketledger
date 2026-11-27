@@ -169,6 +169,13 @@
       "when": 1795011000000,
       "tag": "0023_update_journal_draft_support",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795625626342,
+      "tag": "0024_productive_wiccan",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,3 @@
-
 import { sql } from 'drizzle-orm';
 
 import {
@@ -16,23 +15,17 @@ import {
 import { chartOfAccounts } from './chart-of-accounts.schema.js';
 import { currencies } from './currencies.schema.js';
 import { systemAccountDefinitions } from './system-account-definitions.schema.js';
+import { ledgerAccountPurposeEnum } from './ledger-account-purpose.schema.js';
 
-export const ledgerAccountOwnerTypeEnum = pgEnum(
-  'ledger_account_owner_type',
-  ['CUSTOMER', 'SYSTEM'],
-);
+export const ledgerAccountOwnerTypeEnum = pgEnum('ledger_account_owner_type', [
+  'CUSTOMER',
+  'SYSTEM',
+]);
 
-export const ledgerAccountStatusEnum = pgEnum(
-  'ledger_account_status',
-  ['ACTIVE', 'FROZEN', 'CLOSED'],
-);
-
-export const ledgerAccountPurposeEnum = pgEnum('ledger_account_purpose', [
-  'SPENDABLE_WALLET',
-  'LOCKED_SAVINGS',
-  'SYSTEM_CLEARING',
-  'SYSTEM_REVENUE',
-  'SYSTEM_CASH',
+export const ledgerAccountStatusEnum = pgEnum('ledger_account_status', [
+  'ACTIVE',
+  'FROZEN',
+  'CLOSED',
 ]);
 
 export const ledgerAccounts = pgTable(
@@ -48,6 +41,7 @@ export const ledgerAccounts = pgTable(
       }),
 
     ownerType: ledgerAccountOwnerTypeEnum('owner_type').notNull(),
+    accountPurpose: ledgerAccountPurposeEnum('account_purpose').notNull(),
 
     walletId: uuid('wallet_id'),
 
@@ -60,9 +54,7 @@ export const ledgerAccounts = pgTable(
         onUpdate: 'restrict',
       }),
 
-    status: ledgerAccountStatusEnum('status')
-      .notNull()
-      .default('ACTIVE'),
+    status: ledgerAccountStatusEnum('status').notNull().default('ACTIVE'),
 
     createdAt: timestamp('created_at', {
       withTimezone: true,
@@ -78,23 +70,25 @@ export const ledgerAccounts = pgTable(
   },
   (table) => [
     // Each customer wallet has only one ledger account.
-    unique('ledger_accounts_wallet_currency_unique')
-  .on(table.walletId, table.currency),
+    unique('ledger_accounts_wallet_currency_unique').on(
+      table.walletId,
+      table.currency,
+    ),
 
     // Required for customer-only composite foreign keys.
-    unique('ledger_accounts_id_owner_type_unique')
-      .on(table.id, table.ownerType),
+    unique('ledger_accounts_id_owner_type_unique').on(
+      table.id,
+      table.ownerType,
+    ),
 
     // Required for ledger entry currency consistency.
-    unique('ledger_accounts_id_currency_unique')
-      .on(table.id, table.currency),
+    unique('ledger_accounts_id_currency_unique').on(table.id, table.currency),
 
     // Each system account definition has one account per currency.
-    unique('ledger_accounts_system_definition_currency_unique')
-      .on(
-        table.systemAccountDefinitionId,
-        table.currency,
-      ),
+    unique('ledger_accounts_system_definition_currency_unique').on(
+      table.systemAccountDefinitionId,
+      table.currency,
+    ),
 
     // Enforce exactly one valid account owner.
     check(
@@ -113,14 +107,32 @@ export const ledgerAccounts = pgTable(
         )
       `,
     ),
+    check(
+      'ledger_accounts_owner_purpose_check',
+      sql`
+    (
+      ${table.ownerType} = 'CUSTOMER'
+      AND ${table.accountPurpose} IN (
+        'SPENDABLE_WALLET',
+        'LOCKED_SAVINGS'
+      )
+    )
+    OR
+    (
+      ${table.ownerType} = 'SYSTEM'
+      AND ${table.accountPurpose} IN (
+        'SYSTEM_CLEARING',
+        'SYSTEM_REVENUE',
+        'SYSTEM_CASH'
+      )
+    )
+  `,
+    ),
 
     // Ensure system accounts use their definition's chart account.
     foreignKey({
       name: 'ledger_accounts_system_definition_chart_account_fk',
-      columns: [
-        table.systemAccountDefinitionId,
-        table.chartAccountId,
-      ],
+      columns: [table.systemAccountDefinitionId, table.chartAccountId],
       foreignColumns: [
         systemAccountDefinitions.id,
         systemAccountDefinitions.chartAccountId,
@@ -130,8 +142,19 @@ export const ledgerAccounts = pgTable(
       .onUpdate('restrict'),
 
     // Supports chart-account lookup and FK-related operations.
-    index('ledger_accounts_chart_account_idx')
-      .on(table.chartAccountId),
+    index('ledger_accounts_chart_account_idx').on(table.chartAccountId),
+    foreignKey({
+      name: 'ledger_accounts_system_definition_purpose_fk',
+      columns: [
+        table.systemAccountDefinitionId,
+        table.accountPurpose],
+      foreignColumns: [
+        systemAccountDefinitions.id,
+        systemAccountDefinitions.accountPurpose,
+      ],
+    })
+      .onDelete('restrict')
+      .onUpdate('restrict'),
   ],
 );
 
