@@ -89,7 +89,7 @@ export class BalancePolicy {
     newPostedBalance: bigint,
   ): bigint {
     const newAvailableBalance =
-      newPostedBalance - currentBalance.heldAmont;
+      newPostedBalance - currentBalance.heldAmount;
 
     if (
       account.ownerType === 'CUSTOMER' &&

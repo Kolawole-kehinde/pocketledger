@@ -3,11 +3,11 @@
 export type BalanceDirection = 'DEBIT' | 'CREDIT';
 
 export type LedgerAccountPurpose =
-| 'SPENDABLE_WALLET'
-| 'LOCKES_SAVINGS'
-| 'SYSTEM_CLEARING'
-| 'SYSTEM_REVENUE'
-| 'SYSTEM_CASH'
+  | 'SPENDABLE_WALLET'
+  | 'LOCKED_SAVINGS'
+  | 'SYSTEM_CLEARING'
+  | 'SYSTEM_REVENUE'
+  | 'SYSTEM_CASH';
 
 
 export interface BalanceAccountContext{
@@ -16,11 +16,10 @@ export interface BalanceAccountContext{
     accountPurpose: LedgerAccountPurpose;
     normalBalance: BalanceDirection
 }
-
-export interface BalancePostingEntry{
-    ledgerAcconntId: string;
-    direction: BalanceDirection;
-    amount: bigint
+export interface BalancePostingEntry {
+  ledgerAccountId: string;
+  direction: BalanceDirection;
+  amount: bigint;
 }
 
 export interface AggregatedAccountMovement{
@@ -28,15 +27,14 @@ export interface AggregatedAccountMovement{
   totalDebits: bigint;
   totalCredits: bigint
 }
-
-export interface BalanceProjection{
+export interface BalanceProjection {
   ledgerAccountId: string;
   totalDebits: bigint;
   totalCredits: bigint;
   postedBalance: bigint;
+  heldAmount: bigint;
   version: bigint;
-   heldAmont: bigint;
-  lastEntryAt: Date | null
+  lastEntryAt: Date | null;
 }
 
 export interface BalanceProjectionUpdate{

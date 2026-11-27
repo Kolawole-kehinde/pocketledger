@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -20,43 +21,37 @@ import type {
   CreateJournalPostingInput,
   NormalizedJournalEntry,
 } from '../types/journal.types.js';
-import { BalanceService } from './balance.service.js';
 
+import type {
+  BalancePostingEntry,
+  BalanceAccountContext,
+} from '../types/balance.types.js';
+
+import { BalanceService } from './balance.service.js';
 
 @Injectable()
 export class JournalTransactionService {
   constructor(
     @Inject(DATABASE)
     private readonly db: Database,
-
     private readonly journalTransactionRepository: JournalTransactionRepository,
-
     private readonly balanceService: BalanceService,
   ) {}
 
-  async createPostingJournal(
-    input: CreateJournalPostingInput,
-  ) {
+  async createPostingJournal(input: CreateJournalPostingInput) {
     const uniqueIds = [
-      ...new Set(
-        input.entries.map(
-          (entry) => entry.ledgerAccountId,
-        ),
-      ),
+      ...new Set(input.entries.map((entry) => entry.ledgerAccountId)),
     ].sort();
 
+    // Preliminary account existence check.
     const accounts =
       await this.journalTransactionRepository.findLedgerAccountsByIds(
         uniqueIds,
       );
 
-    const returnedIds = new Set(
-      accounts.map((account) => account.id),
-    );
+    const returnedIds = new Set(accounts.map((account) => account.id));
 
-    const missingIds = uniqueIds.filter(
-      (id) => !returnedIds.has(id),
-    );
+    const missingIds = uniqueIds.filter((id) => !returnedIds.has(id));
 
     if (missingIds.length > 0) {
       throw new NotFoundException({
@@ -66,6 +61,7 @@ export class JournalTransactionService {
     }
 
     return this.db.transaction(async (tx) => {
+      // Lock ledger accounts in deterministic order.
       const lockedAccounts =
         await this.journalTransactionRepository.lockLedgerAccountsByIds(
           tx,
@@ -73,10 +69,7 @@ export class JournalTransactionService {
         );
 
       const lockedAccountMap = new Map(
-        lockedAccounts.map((account) => [
-          account.id,
-          account,
-        ]),
+        lockedAccounts.map((account) => [account.id, account]),
       );
 
       const missingLockedIds = uniqueIds.filter(
@@ -90,11 +83,10 @@ export class JournalTransactionService {
         });
       }
 
-      const normalizedEntries: NormalizedJournalEntry[] =
-        input.entries.map((entry) => {
-          const account = lockedAccountMap.get(
-            entry.ledgerAccountId,
-          );
+      // Normalize and validate account status.
+      const normalizedEntries: NormalizedJournalEntry[] = input.entries.map(
+        (entry) => {
+          const account = lockedAccountMap.get(entry.ledgerAccountId);
 
           if (!account) {
             throw new NotFoundException(
@@ -122,43 +114,40 @@ export class JournalTransactionService {
             direction: entry.direction,
             amount: entry.amount,
           };
-        });
+        },
+      );
 
-      const journalValidation =
-        journalPostingPolicy({
-          entries: normalizedEntries,
-        });
+      // Validate journal-level posting rules.
+      const journalValidation = journalPostingPolicy({
+        entries: normalizedEntries,
+      });
 
       if (!journalValidation.valid) {
-        throw new BadRequestException(
-          journalValidation.errors,
-        );
+        throw new BadRequestException(journalValidation.errors);
       }
 
-      const currency =
-        normalizedEntries[0].account.currency;
+      // Currency is derived from validated account context.
+      const currency = normalizedEntries[0].account.currency;
 
       const journalId = randomUUID();
       const now = new Date();
+      const postedAt = now;
 
-      const journalReference =
-        `JRN-${journalId}`;
+      const journalReference = `JRN-${journalId}`;
 
+      // Create DRAFT journal.
       const journal =
-        await this.journalTransactionRepository.createJournalTransaction(
-          tx,
-          {
-            id: journalId,
-            reference: journalReference,
-            transactionType: input.transactionType,
-            status: 'DRAFT',
-            currency,
-            sourceModule: input.sourceModule,
-            sourceReference: input.sourceReference,
-            postingPurpose: input.postingPurpose,
-            createdAt: now,
-          },
-        );
+        await this.journalTransactionRepository.createJournalTransaction(tx, {
+          id: journalId,
+          reference: journalReference,
+          transactionType: input.transactionType,
+          status: 'DRAFT',
+          currency,
+          sourceModule: input.sourceModule,
+          sourceReference: input.sourceReference,
+          postingPurpose: input.postingPurpose,
+          createdAt: now,
+        });
 
       if (!journal) {
         throw new ConflictException(
@@ -166,51 +155,88 @@ export class JournalTransactionService {
         );
       }
 
-      const preparedEntries =
-        normalizedEntries.map((entry, index) => ({
-          id: randomUUID(),
-          journalTransactionId: journal.id,
-          ledgerAccountId: entry.ledgerAccountId,
-          entryType: entry.direction,
-          amount: entry.amount,
-          currency,
-          sequenceNumber: index + 1,
-          createdAt: now,
-        }));
+      // Prepare immutable journal entries.
+      const preparedEntries = normalizedEntries.map((entry, index) => ({
+        id: randomUUID(),
+        journalTransactionId: journal.id,
+        ledgerAccountId: entry.ledgerAccountId,
+        entryType: entry.direction,
+        amount: entry.amount,
+        currency,
+        sequenceNumber: index + 1,
+        createdAt: now,
+      }));
 
+      // Insert journal entries.
       await this.journalTransactionRepository.createJournalEntries(
         tx,
         preparedEntries,
       );
 
-      // Apply the balance projection within this same transaction.
-      await this.balanceService.applyJournalMovements(
-        tx,
+      // Build the balance movements from the validated entries.
+      const balancePostingEntries: BalancePostingEntry[] =
         normalizedEntries.map((entry) => ({
           ledgerAccountId: entry.ledgerAccountId,
           direction: entry.direction,
           amount: entry.amount,
-        })),
-        lockedAccounts.map((account) => ({
-          id: account.id,
-          ownerType: account.ownerType,
-          accountPurpose: account.accountPurpose,
-          normalBalance: account.normalBalance,
-        })),
-        now,
+        }));
+
+      // Fetch authoritative normal-balance configurations
+      // from chart_of_accounts within the same transaction.
+      const normalBalances =
+        await this.journalTransactionRepository.findNormalBalancesByChartAccountIds(
+          tx,
+          lockedAccounts.map((account) => account.chartAccountId),
+        );
+
+      const normalBalanceMap = new Map(
+        normalBalances.map((account) => [
+          account.chartAccountId,
+          account.normalBalance,
+        ]),
       );
 
+      // Build the account context required by BalanceService.
+      const balanceAccountContexts: BalanceAccountContext[] =
+        lockedAccounts.map((account) => {
+          const normalBalance = normalBalanceMap.get(account.chartAccountId);
+
+          if (!normalBalance) {
+            throw new InternalServerErrorException({
+              code: 'CHART_ACCOUNT_NORMAL_BALANCE_MISSING',
+              message:
+                'Normal balance configuration is missing for a chart account.',
+              chartAccountId: account.chartAccountId,
+            });
+          }
+
+          return {
+            id: account.id,
+            ownerType: account.ownerType,
+            accountPurpose: account.accountPurpose,
+            normalBalance,
+          };
+        });
+
+      // Update balance projections before transitioning
+      // the journal to POSTED. All changes remain atomic.
+      await this.balanceService.applyJournalMovements(
+        tx,
+        balancePostingEntries,
+        balanceAccountContexts,
+        postedAt,
+      );
+
+      // Transition the journal to POSTED.
       const postedJournal =
         await this.journalTransactionRepository.markJournalAsPosted(
           tx,
           journal.id,
-          now,
+          postedAt,
         );
 
       if (!postedJournal) {
-        throw new ConflictException(
-          'Journal transaction could not be posted.',
-        );
+        throw new ConflictException('Journal transaction could not be posted.');
       }
 
       return postedJournal;

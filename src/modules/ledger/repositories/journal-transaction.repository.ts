@@ -3,6 +3,7 @@ import { asc, eq, inArray } from 'drizzle-orm';
 import { DATABASE } from '../../../infrastructure/database/database.provider.js';
 import type { Database, DatabaseTransaction} from '../../../infrastructure/database/database.types.js';
 import {
+  chartOfAccounts,
   JournalTransaction,
   journalTransactions,
   LedgerAccount,
@@ -107,4 +108,23 @@ export class JournalTransactionRepository {
 
     return journal ?? null;
   }
+
+  async findNormalBalancesByChartAccountIds(
+  tx: DatabaseTransaction,
+  chartAccountIds: string[],
+): Promise<{ chartAccountId: string; normalBalance: 'DEBIT' | 'CREDIT' }[]> {
+  const uniqueIds = [...new Set(chartAccountIds)];
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  return tx
+    .select({
+      chartAccountId: chartOfAccounts.id,
+      normalBalance: chartOfAccounts.normalBalance,
+    })
+    .from(chartOfAccounts)
+    .where(inArray(chartOfAccounts.id, uniqueIds));
+}
 }

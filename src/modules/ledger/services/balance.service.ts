@@ -163,25 +163,25 @@ export class BalanceService {
         );
       }
 
-      if (!accountsById.has(entry.ledgerAcconntId)) {
+      if (!accountsById.has(entry.ledgerAccountId)) {
         throw new BalanceAccountContextMissingException(
-          entry.ledgerAcconntId,
+          entry.ledgerAccountId,
         );
       }
 
       let movement = movements.get(
-        entry.ledgerAcconntId,
+        entry.ledgerAccountId,
       );
 
       if (!movement) {
         movement = {
-          ledgerAccountId: entry.ledgerAcconntId,
+          ledgerAccountId: entry.ledgerAccountId,
           totalDebits: 0n,
           totalCredits: 0n,
         };
 
         movements.set(
-          entry.ledgerAcconntId,
+          entry.ledgerAccountId,
           movement,
         );
       }
